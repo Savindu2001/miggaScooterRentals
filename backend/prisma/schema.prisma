@@ -1,0 +1,247 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  STAFF
+}
+
+enum ScooterStatus {
+  AVAILABLE
+  RESERVED
+  RENTED
+  MAINTENANCE
+}
+
+enum BookingStatus {
+  PENDING
+  AWAITING_PAYMENT
+  CONFIRMED
+  PICKED_UP
+  RETURNED
+  CANCELLED
+}
+
+enum ExtensionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum PickupType {
+  OFFICE
+  HOTEL
+}
+
+// ─── Users (Admin / Staff) ────────────────────────────────────────────────────
+
+model User {
+  id         String   @id @default(cuid())
+  email      String   @unique
+  password   String
+  name       String
+  role       Role     @default(STAFF)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  expenses   Expense[]
+  extensions BookingExtension[] @relation("ReviewedBy")
+
+  @@map("users")
+}
+
+// ─── Scooters ─────────────────────────────────────────────────────────────────
+
+model Scooter {
+  id           String        @id @default(cuid())
+  scooterCode  String        @unique
+  title        String
+  brand        String
+  model        String
+  year         Int
+  color        String
+  plateNumber  String        @unique
+  dailyRate    Decimal       @db.Decimal(10, 2)
+  weeklyRate   Decimal       @db.Decimal(10, 2)
+  monthlyRate  Decimal       @db.Decimal(10, 2)
+  status       ScooterStatus @default(AVAILABLE)
+  description  String?
+  images       Json          @default("[]")
+  isDeleted    Boolean       @default(false)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  bookings Booking[]
+  expenses Expense[]
+
+  @@map("scooters")
+}
+
+// ─── Delivery Zones ───────────────────────────────────────────────────────────
+
+model DeliveryZone {
+  id          String   @id @default(cuid())
+  zoneName    String
+  distanceKm  Decimal  @db.Decimal(8, 2)
+  fee         Decimal  @db.Decimal(10, 2)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  bookings Booking[]
+
+  @@map("delivery_zones")
+}
+
+// ─── Customer Access Tokens ───────────────────────────────────────────────────
+
+model CustomerAccessToken {
+  id        String   @id @default(cuid())
+  bookingId String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@map("customer_access_tokens")
+}
+
+// ─── Bookings ─────────────────────────────────────────────────────────────────
+
+model Booking {
+  id                 String        @id @default(cuid())
+  bookingId          String        @unique  // MS-001-YYYYMMDD
+  scooterId          String
+  customerName       String
+  nationality        String
+  passportNumber     String
+  passportPhoto      String?
+  idpPhoto           String?
+  email              String
+  phone              String
+  pickupDate         DateTime
+  returnDate         DateTime
+  rentalDays         Int
+  totalAmount        Decimal       @db.Decimal(10, 2)
+  securityDeposit    Decimal       @db.Decimal(10, 2)
+  bookingStatus      BookingStatus @default(PENDING)
+  qrCode             String?
+  qrUsed             Boolean       @default(false)
+  verificationToken  String?       @unique
+  agreementSigned    Boolean       @default(false)
+  agreementPdf       String?
+  signatureImage     String?
+  signedAt           DateTime?
+  pickupType         PickupType    @default(OFFICE)
+  deliveryFee        Decimal       @default(0) @db.Decimal(10, 2)
+  deliveryZoneId     String?
+  notes              String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  scooter        Scooter              @relation(fields: [scooterId], references: [id])
+  deliveryZone   DeliveryZone?        @relation(fields: [deliveryZoneId], references: [id])
+  payments       Payment[]
+  extensions     BookingExtension[]
+  accessTokens   CustomerAccessToken[]
+
+  @@map("bookings")
+}
+
+// ─── Payments ─────────────────────────────────────────────────────────────────
+
+model Payment {
+  id             String        @id @default(cuid())
+  paymentId      String        @unique  // Internal ID e.g. PAY-001
+  bookingId      String
+  paypalOrderId  String?
+  amount         Decimal       @db.Decimal(10, 2)
+  currency       String        @default("USD")
+  paymentStatus  PaymentStatus @default(PENDING)
+  paidAt         DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@map("payments")
+}
+
+// ─── Expenses ─────────────────────────────────────────────────────────────────
+
+model Expense {
+  id          String   @id @default(cuid())
+  category    String
+  amount      Decimal  @db.Decimal(10, 2)
+  expenseDate DateTime
+  note        String?
+  createdById String
+  scooterId   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdBy User     @relation(fields: [createdById], references: [id])
+  scooter   Scooter? @relation(fields: [scooterId], references: [id])
+
+  @@map("expenses")
+}
+
+// ─── Booking Extensions ───────────────────────────────────────────────────────
+
+model BookingExtension {
+  id              String          @id @default(cuid())
+  bookingId       String
+  requestedUntil  DateTime
+  reason          String
+  status          ExtensionStatus @default(PENDING)
+  reviewedById    String?
+  reviewedAt      DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  booking    Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  reviewedBy User?   @relation("ReviewedBy", fields: [reviewedById], references: [id])
+
+  @@map("booking_extensions")
+}
+
+// ─── Booking ID Counter ───────────────────────────────────────────────────────
+
+model BookingCounter {
+  id        Int      @id @default(1)
+  count     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@map("booking_counter")
+}
+
+// ─── System Settings ──────────────────────────────────────────────────────────
+
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("settings")
+}
