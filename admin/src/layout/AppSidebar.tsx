@@ -33,9 +33,33 @@ const navItems: NavItem[] = [
     path: "/",
   },
   {
+    icon: (
+      <svg
+        className="w-6 h-6 stroke-current"
+        fill="none"
+        viewBox="0 0 24 24"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="1.8"
+          d="M12 4H6a2 2 0 00-2 2v6m0 4v2a2 2 0 002 2h6m4 0h2a2 2 0 002-2v-2m0-4V6a2 2 0 00-2-2h-2m-8 4h4v4H8V8zm8 0h4v4h-4V8zm0 8h4v4h-4v-4zM8 16h4v4H8v-4z"
+        />
+      </svg>
+    ),
+    name: "QR Scan",
+    path: "/bookings/verify",
+  },
+  {
     icon: <CalenderIcon />,
     name: "Bookings",
     path: "/bookings",
+  },
+  {
+    icon: <CalenderIcon />,
+    name: "Calendar",
+    path: "/calendar",
   },
   {
     icon: <BoxCubeIcon />,

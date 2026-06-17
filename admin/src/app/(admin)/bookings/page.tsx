@@ -32,9 +32,12 @@ interface Booking {
   pickupType: string;
   notes?: string;
   agreementPdf?: string;
+  agreementSigned?: boolean;
+  signedAt?: string;
   signatureImage?: string;
   scooter: { id: string; title: string; plateNumber: string };
   payments: Payment[];
+  extensions?: any[];
   createdAt: string;
 }
 
@@ -162,8 +165,8 @@ function Modal({ open, onClose, title, children, wide }: { open: boolean; onClos
       onClick={onClose}
     >
       <div
-        style={{ backgroundColor: "white", borderRadius: "1rem", boxShadow: "0 25px 60px rgba(0,0,0,0.3)", width: "100%", maxWidth: wide ? "56rem" : "42rem", maxHeight: "90vh", overflowY: "auto", position: "relative" }}
-        className="dark:bg-gray-900"
+        style={{ borderRadius: "1rem", boxShadow: "0 25px 60px rgba(0,0,0,0.3)", width: "100%", maxWidth: wide ? "56rem" : "42rem", maxHeight: "90vh", overflowY: "auto", position: "relative" }}
+        className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800">
@@ -208,9 +211,9 @@ function getDepositRequired() {
 }
 
 function getDepositAmount() {
-  if (typeof window === "undefined") return 100;
+  if (typeof window === "undefined") return 15000;
   const v = localStorage.getItem("migga_deposit_amount");
-  return v === null ? 100 : Number(v);
+  return v === null ? 15000 : Number(v);
 }
 
 // ─── Create Booking Form ──────────────────────────────────────────────────────
@@ -274,7 +277,7 @@ function CreateBookingForm({ scooters, onSuccess }: { scooters: Scooter[]; onSuc
           <select className={inputCls} required value={form.scooterId} onChange={(e) => set("scooterId", e.target.value)}>
             <option value="">Select scooter</option>
             {scooters.filter(s => s.status === "AVAILABLE").map(s => (
-              <option key={s.id} value={s.id}>{s.title} — {s.plateNumber} (${Number(s.dailyRate).toFixed(2)}/day)</option>
+              <option key={s.id} value={s.id}>{s.title} — {s.plateNumber} (Rs. {Number(s.dailyRate).toFixed(2)}/day)</option>
             ))}
           </select>
         </div>
@@ -338,11 +341,11 @@ function CreateBookingForm({ scooters, onSuccess }: { scooters: Scooter[]; onSuc
             <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{rentalDays || "—"}</p>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Total Amount ($) *</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Total Amount (Rs.) *</label>
             <input type="number" min={0} step="0.01" className={inputCls} required value={form.totalAmount} onChange={(e) => set("totalAmount", Number(e.target.value))} />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Security Deposit ($)</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Security Deposit (Rs.)</label>
             <input type="number" min={0} step="0.01" className={inputCls} value={form.securityDeposit} disabled={!depositRequired}
               onChange={(e) => set("securityDeposit", Number(e.target.value))} />
           </div>
@@ -386,31 +389,26 @@ function CreateBookingForm({ scooters, onSuccess }: { scooters: Scooter[]; onSuc
 
 function BookingDetailModal({ booking, onSuccess, onClose }: { booking: Booking | null; onSuccess: () => void; onClose: () => void }) {
   const [loading, setLoading] = useState(false);
-  const [resending, setResending] = useState(false);
   const [resendingQr, setResendingQr] = useState(false);
   const [viewImg, setViewImg] = useState<string | null>(null);
+
+  const [returnPaymentOpen, setReturnPaymentOpen] = useState(false);
+  const [returnPaymentMethod, setReturnPaymentMethod] = useState<"CASH" | "CARD" | "BANK_TRANSFER">("CASH");
+  const [returnNote, setReturnNote] = useState("");
 
   if (!booking) return null;
   const next = STATUS_NEXT[booking.bookingStatus];
   const latestPayment = booking.payments?.[booking.payments.length - 1];
   const isPaid = latestPayment?.paymentStatus === "COMPLETED";
 
+  const pendingExtension = booking.extensions?.find(
+    (ext: any) => ext.status === "APPROVED" && ext.paymentStatus === "PENDING"
+  );
+
   const changeStatus = async (status: BookingStatus) => {
     setLoading(true);
     try { await api.patch(`/bookings/${booking.id}/status`, { bookingStatus: status }); onSuccess(); }
     finally { setLoading(false); }
-  };
-
-  const resendPaymentLink = async () => {
-    setResending(true);
-    try {
-      await api.post(`/bookings/${booking.id}/resend-payment-link`);
-      alert("Payment link email & WhatsApp resent successfully!");
-    } catch (e: any) {
-      alert(e.response?.data?.message || "Failed to resend payment link");
-    } finally {
-      setResending(false);
-    }
   };
 
   const resendQrCode = async () => {
@@ -443,8 +441,8 @@ function BookingDetailModal({ booking, onSuccess, onClose }: { booking: Booking 
               ["Pickup", fmt(booking.pickupDate)],
               ["Return", fmt(booking.returnDate)],
               ["Days", String(booking.rentalDays)],
-              ["Amount", `$${Number(booking.totalAmount).toFixed(2)}`],
-              ["Deposit", `$${Number(booking.securityDeposit).toFixed(2)}`],
+              ["Amount", `Rs. ${Number(booking.totalAmount).toFixed(2)}`],
+              ["Deposit", `Rs. ${Number(booking.securityDeposit).toFixed(2)}`],
               ["Pickup Type", booking.pickupType],
             ].map(([l, v]) => (
               <div key={l}>
@@ -468,7 +466,7 @@ function BookingDetailModal({ booking, onSuccess, onClose }: { booking: Booking 
           </div>
 
           {/* Documents */}
-          {(booking.passportPhoto || booking.idpPhoto || booking.signatureImage || booking.agreementPdf) && (
+          {(booking.passportPhoto || booking.idpPhoto || booking.signatureImage || booking.agreementPdf || booking.agreementSigned) && (
             <div className="space-y-3">
               <p className="text-xs font-semibold text-gray-500 dark:text-gray-400">Documents</p>
               <div className="flex flex-wrap gap-2">
@@ -492,8 +490,8 @@ function BookingDetailModal({ booking, onSuccess, onClose }: { booking: Booking 
                     Signature
                   </button>
                 )}
-                {booking.agreementPdf && (
-                  <a href={imgUrl(booking.agreementPdf)} target="_blank" rel="noopener noreferrer"
+                {(booking.agreementSigned || booking.agreementPdf) && (
+                  <a href={booking.agreementSigned ? `${API_BASE}/api/v1/bookings/${booking.id}/agreement` : imgUrl(booking.agreementPdf!)} target="_blank" rel="noopener noreferrer"
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 rounded-lg text-xs font-medium hover:bg-orange-100 transition-colors">
                     Agreement PDF ↗
                   </a>
@@ -530,10 +528,9 @@ function BookingDetailModal({ booking, onSuccess, onClose }: { booking: Booking 
             </div>
           )}
 
-
           {/* Notes */}
           {booking.notes && (
-            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+            <div className="bg-gray-50 dark:bg-gray-805 bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
               <p className="text-xs text-gray-400 mb-1">Notes</p>
               <p className="text-sm text-gray-700 dark:text-gray-300">{booking.notes}</p>
             </div>
@@ -542,25 +539,28 @@ function BookingDetailModal({ booking, onSuccess, onClose }: { booking: Booking 
           {/* Actions */}
           <div className="flex gap-2 flex-wrap pt-2 border-t border-gray-100 dark:border-gray-800">
             {next && (
-              <button onClick={() => changeStatus(next)} disabled={loading || resending || resendingQr}
-                className="flex-1 py-2 bg-brand-500 hover:bg-brand-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
+              <button
+                onClick={() => {
+                  if (next === "RETURNED" && pendingExtension) {
+                    setReturnPaymentOpen(true);
+                  } else {
+                    changeStatus(next);
+                  }
+                }}
+                disabled={loading || resendingQr}
+                className="flex-1 py-2 bg-brand-500 hover:bg-brand-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+              >
                 {loading ? "…" : `Mark as ${next.replace(/_/g, " ")}`}
               </button>
             )}
-            {booking.bookingStatus !== "CANCELLED" && booking.bookingStatus !== "RETURNED" && !isPaid && (
-              <button onClick={resendPaymentLink} disabled={loading || resending || resendingQr}
-                className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
-                {resending ? "Resending..." : "Resend Payment Link"}
-              </button>
-            )}
             {booking.bookingStatus !== "CANCELLED" && booking.bookingStatus !== "RETURNED" && isPaid && (
-              <button onClick={resendQrCode} disabled={loading || resending || resendingQr}
+              <button onClick={resendQrCode} disabled={loading || resendingQr}
                 className="flex-1 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
                 {resendingQr ? "Resending QR..." : "Resend QR Code"}
               </button>
             )}
             {booking.bookingStatus !== "CANCELLED" && booking.bookingStatus !== "RETURNED" && (
-              <button onClick={() => changeStatus("CANCELLED")} disabled={loading || resending || resendingQr}
+              <button onClick={() => changeStatus("CANCELLED")} disabled={loading || resendingQr}
                 className="flex-1 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
                 Cancel
               </button>
@@ -569,6 +569,107 @@ function BookingDetailModal({ booking, onSuccess, onClose }: { booking: Booking 
         </div>
       </Modal>
       {viewImg && <ImageViewer open src={viewImg} onClose={() => setViewImg(null)} />}
+
+      {returnPaymentOpen && pendingExtension && (
+        <Modal open title="Unpaid Extension Payment Due" onClose={() => setReturnPaymentOpen(false)}>
+          <div className="space-y-4">
+            <div className="p-4 bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-250 dark:border-yellow-900/30 rounded-xl space-y-2 text-xs">
+              <p className="font-bold text-yellow-800 dark:text-yellow-400">⚠️ Return Extension Payment Required</p>
+              <p className="text-gray-655 dark:text-gray-300">
+                This booking has an approved rental extension that is unpaid. You must collect the payment before marking the scooter as returned.
+              </p>
+              <div className="mt-2 text-gray-750 dark:text-gray-200">
+                <p>New Return Date: <strong>{fmt(pendingExtension.requestedUntil)}</strong></p>
+                <p>Base Extension Fee: <strong>Rs. {Number(pendingExtension.extraAmount).toFixed(2)}</strong></p>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase mb-2">Payment Method</label>
+              <div className="grid grid-cols-3 gap-3">
+                {(["CASH", "CARD", "BANK_TRANSFER"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setReturnPaymentMethod(m)}
+                    className={`py-2 px-3 border rounded-xl text-xs font-bold transition-all text-center ${
+                      returnPaymentMethod === m
+                        ? "border-brand-500 bg-brand-500/5 text-brand-500"
+                        : "border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-850 text-gray-700 dark:text-gray-300"
+                    }`}
+                  >
+                    {m === "BANK_TRANSFER" ? "Bank Transfer" : m === "CARD" ? "Card (+3.5%)" : "Cash"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-gray-50 dark:bg-gray-950 p-4 rounded-xl border dark:border-gray-800 space-y-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-gray-500">Base Extension Amount</span>
+                <span className="font-medium text-gray-850 dark:text-white">Rs. {Number(pendingExtension.extraAmount).toFixed(2)}</span>
+              </div>
+              {returnPaymentMethod === "CARD" && (
+                <div className="flex justify-between text-yellow-600">
+                  <span>Card Processing Surcharge (3.5%)</span>
+                  <span className="font-medium">+ Rs. {(Number(pendingExtension.extraAmount) * 0.035).toFixed(2)}</span>
+                </div>
+              )}
+              <div className="flex justify-between border-t dark:border-gray-800 pt-2 font-bold text-sm">
+                <span className="text-gray-900 dark:text-white">Total Amount to Charge</span>
+                <span className="text-brand-500">Rs. {((Number(pendingExtension.extraAmount)) * (returnPaymentMethod === "CARD" ? 1.035 : 1)).toFixed(2)}</span>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase mb-2">Desk Return Note</label>
+              <input
+                type="text"
+                placeholder="e.g. Paid cash at desk on return"
+                value={returnNote}
+                onChange={(e) => setReturnNote(e.target.value)}
+                className="w-full h-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-transparent px-3 text-xs text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 dark:bg-gray-850"
+              />
+            </div>
+
+            <div className="flex gap-2 pt-2 border-t border-gray-100 dark:border-gray-800">
+              <button
+                type="button"
+                onClick={() => setReturnPaymentOpen(false)}
+                className="flex-1 py-2 border border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800 text-gray-750 dark:text-gray-300 rounded-lg text-xs font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setLoading(true);
+                  try {
+                    const base = Number(pendingExtension.extraAmount);
+                    const finalAmount = base * (returnPaymentMethod === "CARD" ? 1.035 : 1);
+                    await api.post(`/bookings/${booking.id}/admin-confirm-return`, {
+                      paymentMethod: returnPaymentMethod,
+                      amountPaid: finalAmount,
+                      extensionId: pendingExtension.id,
+                      referenceNote: returnNote || `Extension paid via ${returnPaymentMethod} at return`
+                    });
+                    setReturnPaymentOpen(false);
+                    onSuccess();
+                  } catch (e: any) {
+                    alert(e.response?.data?.message || "Failed to complete return and payment");
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                disabled={loading}
+                className="flex-[2] py-2 bg-brand-500 hover:bg-brand-600 text-white rounded-lg text-xs font-bold transition-all text-center"
+              >
+                {loading ? "Processing..." : "Confirm Payment & Complete Return 🏁"}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </>
   );
 }
@@ -675,7 +776,7 @@ export default function BookingsPage() {
             <table className="w-full text-sm">
               <thead className="border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50">
                 <tr>
-                  {["Booking ID", "Customer", "Scooter", "Pickup", "Return", "Days", "Amount", "Status", "Payment", ""].map((h) => (
+                  {["Booking ID", "Customer", "Scooter", "Pickup", "Return", "Days", "Amount", "Status", "Payment", "Action"].map((h) => (
                     <th key={h} className="text-left text-xs font-semibold text-gray-500 dark:text-gray-400 px-4 py-3 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -696,7 +797,7 @@ export default function BookingsPage() {
                       <td className="px-4 py-3 text-gray-700 dark:text-gray-300 whitespace-nowrap">{fmt(b.pickupDate)}</td>
                       <td className="px-4 py-3 text-gray-700 dark:text-gray-300 whitespace-nowrap">{fmt(b.returnDate)}</td>
                       <td className="px-4 py-3 text-gray-700 dark:text-gray-300 text-center">{b.rentalDays}</td>
-                      <td className="px-4 py-3 font-semibold text-gray-900 dark:text-white">${Number(b.totalAmount).toFixed(2)}</td>
+                      <td className="px-4 py-3 font-semibold text-gray-900 dark:text-white">Rs. {Number(b.totalAmount).toFixed(2)}</td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${STATUS_COLORS[b.bookingStatus]}`}>
                           {b.bookingStatus.replace(/_/g, " ")}

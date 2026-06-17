@@ -118,7 +118,7 @@ export default function SettingsPage() {
         {depositRequired && (
           <div className="pt-4 border-t border-gray-100 dark:border-gray-800 flex items-end gap-3">
             <div className="flex-1">
-              <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Security Deposit Amount ($)</label>
+            <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Security Deposit Amount (Rs.)</label>
               <input
                 type="number"
                 min={0}
@@ -204,7 +204,7 @@ export default function SettingsPage() {
             ["API Endpoint", process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000/api/v1"],
             ["System Mode", process.env.NODE_ENV ?? "development"],
             ["Local Storage State", "Active"],
-            ["Business Currency", "USD ($)"],
+            ["Business Currency", "LKR (Rs. / රැ:)"],
           ].map(([l, v]) => (
             <div key={l} className="bg-gray-50 dark:bg-gray-800/40 rounded-xl p-4 border border-gray-100 dark:border-gray-800/60">
               <span className="text-xs text-gray-400">{l}</span>

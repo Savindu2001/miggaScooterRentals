@@ -48,3 +48,40 @@ export class SignAgreementDto {
   @IsOptional()
   signatureBase64?: string;
 }
+
+export class ConfirmPickupDto {
+  @ApiPropertyOptional({ example: 'CASH' })
+  @IsString()
+  paymentMethod: string;
+
+  @ApiPropertyOptional({ example: 25000 })
+  @IsNumber()
+  amountPaid: number;
+
+  @ApiPropertyOptional({ example: 'Cash paid at office' })
+  @IsString()
+  @IsOptional()
+  referenceNote?: string;
+}
+
+export class ConfirmReturnDto {
+  @ApiPropertyOptional({ example: 'CASH' })
+  @IsString()
+  @IsOptional()
+  paymentMethod?: string;
+
+  @ApiPropertyOptional({ example: 5000 })
+  @IsNumber()
+  @IsOptional()
+  amountPaid?: number;
+
+  @ApiPropertyOptional({ example: 'ext_123' })
+  @IsString()
+  @IsOptional()
+  extensionId?: string;
+
+  @ApiPropertyOptional({ example: 'Extension fee paid in cash' })
+  @IsString()
+  @IsOptional()
+  referenceNote?: string;
+}

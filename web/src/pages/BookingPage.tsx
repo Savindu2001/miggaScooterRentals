@@ -50,13 +50,10 @@ function ModernDatePicker({
 }
 import { differenceInDays, addDays, format } from 'date-fns'
 import toast from 'react-hot-toast'
-import { PayPalButtons, PayPalScriptProvider } from '@paypal/react-paypal-js'
 import Navbar from '../components/Navbar'
 import api from '../lib/api'
 
-const PAYPAL_CLIENT_ID = import.meta.env.VITE_PAYPAL_CLIENT_ID ?? ''
 const API_BASE = import.meta.env.VITE_API_URL?.replace('/api/v1', '') ?? 'http://localhost:3000'
-const FRONTEND_URL = import.meta.env.VITE_FRONTEND_URL ?? window.location.origin
 
 interface Scooter {
   id: string; scooterCode: string; title: string; brand: string; model: string
@@ -96,14 +93,13 @@ function describeRate(scooter: Scooter, days: number): string {
   const remainingDays = remainingAfterMonths % 7
 
   const parts: string[] = []
-  if (fullMonths > 0) parts.push(`${fullMonths}mo × $${monthly}`)
-  if (fullWeeks > 0) parts.push(`${fullWeeks}wk × $${weekly}`)
-  if (remainingDays > 0) parts.push(`${remainingDays}d × $${daily}`)
+  if (fullMonths > 0) parts.push(`${fullMonths}mo × Rs. ${monthly}`)
+  if (fullWeeks > 0) parts.push(`${fullWeeks}wk × Rs. ${weekly}`)
+  if (remainingDays > 0) parts.push(`${remainingDays}d × Rs. ${daily}`)
   return parts.join(' + ')
 }
 
-// Initial default value for security deposit
-const DEFAULT_SECURITY_DEPOSIT = 100
+const DEFAULT_SECURITY_DEPOSIT = 15000
 
 export default function BookingPage() {
   const { scooterId } = useParams<{ scooterId: string }>()
@@ -132,12 +128,59 @@ export default function BookingPage() {
   const [idpPhoto, setIdpPhoto] = useState<File | null>(null)
 
   // Booking state
-  const [step, setStep] = useState<'form' | 'agreement' | 'sign' | 'confirm_sign' | 'payment'>('form')
+  const [step, setStep] = useState<'form' | 'agreement' | 'sign' | 'confirm_sign'>('form')
   const [localSignature, setLocalSignature] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [booking, setBooking] = useState<{ id: string; bookingId: string; totalAmount: number } | null>(null)
-  const [paypalOrderId, setPaypalOrderId] = useState<string | null>(null)
-  const [paymentOption, setPaymentOption] = useState<'NOW' | 'LATER'>('NOW')
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'BANK_TRANSFER'>('CASH')
+  const [bankSlip, setBankSlip] = useState<File | null>(null)
+
+  // Agreement Scroll Detection
+  const termsRef = useRef<HTMLDivElement>(null)
+  const [hasReadAgreement, setHasReadAgreement] = useState(false)
+
+  const [rules, setRules] = useState<Array<{ title: string; description: string }>>([
+    {
+      title: "1. Driving License & Helmet Policy",
+      description: "Renter must hold a valid driver's license and suitable International Driving Permit (IDP). Both driver and passenger must wear certified safety helmets at all times when riding the vehicle."
+    },
+    {
+      title: "2. Speed Limits & Safety",
+      description: "Obey all local traffic laws and speed limits. Always drive defensively and safely. Sub-renting, loaning, or allowing unauthorized persons to drive the scooter is strictly prohibited."
+    },
+    {
+      title: "3. Scooter Maintenance & Damage Liability",
+      description: "Renter acknowledges receipt of the scooter in excellent mechanical and aesthetic condition, and agrees to return it in the same condition. Any damage, mechanical failure, or theft occurring during the rental period is the sole financial responsibility of the renter."
+    },
+    {
+      title: "4. Fuel Policy",
+      description: "The vehicle should be returned with the same level of fuel as provided at pickup."
+    },
+    {
+      title: "5. Security Deposit",
+      description: "A Security Deposit of Rs. {securityDeposit} is charged. This deposit is fully refundable upon safe, clean, and undamaged return of the vehicle after inspection."
+    }
+  ])
+
+  useEffect(() => {
+    api.get('/bookings/rules')
+      .then(res => {
+        const data = res.data?.data ?? res.data
+        if (Array.isArray(data) && data.length > 0) {
+          setRules(data)
+        }
+      })
+      .catch(err => {
+        console.error('Failed to fetch agreement rules', err)
+      })
+  }, [])
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget
+    if (target.scrollHeight - target.scrollTop <= target.clientHeight + 10) {
+      setHasReadAgreement(true)
+    }
+  }
 
   // Canvas drawing ref and state
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -189,8 +232,8 @@ export default function BookingPage() {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     ctx.lineTo(coords.x, coords.y)
-    ctx.strokeStyle = '#ffffff'
-    ctx.lineWidth = 4
+    ctx.strokeStyle = '#0f172a' // clean dark ink
+    ctx.lineWidth = 3
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
     ctx.stroke()
@@ -284,7 +327,11 @@ export default function BookingPage() {
   const rentalCost = scooter ? calcPrice(scooter, Math.max(days, 1)) : 0
   const deliveryZone = zones.find(z => z.id === form.deliveryZoneId)
   const deliveryFee = form.pickupType === 'HOTEL' && deliveryZone ? Number(deliveryZone.fee) : 0
-  const totalAmount = rentalCost + deliveryFee + securityDeposit
+  const baseTotal = rentalCost + deliveryFee + securityDeposit
+  
+  // Card processing fee 3.5%
+  const cardFee = paymentMethod === 'CARD' ? baseTotal * 0.035 : 0
+  const totalAmount = baseTotal + cardFee
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     setForm(f => ({ ...f, [e.target.name]: e.target.value }))
@@ -296,6 +343,9 @@ export default function BookingPage() {
     if (days < 1) { toast.error('Return date must be after pickup date'); return }
     if (!form.customerName || !form.email || !form.phone || !form.passportNumber) {
       toast.error('Please fill in all required fields'); return
+    }
+    if (paymentMethod === 'BANK_TRANSFER' && !bankSlip) {
+      toast.error('Please upload your bank transfer slip'); return
     }
 
     setSubmitting(true)
@@ -316,8 +366,13 @@ export default function BookingPage() {
       if (form.pickupType === 'HOTEL' && form.deliveryZoneId) fd.append('deliveryZoneId', form.deliveryZoneId)
       fd.append('deliveryFee', String(deliveryFee))
       if (form.notes) fd.append('notes', form.notes)
+      fd.append('paymentMethod', paymentMethod)
+
       if (passportPhoto) fd.append('passportPhoto', passportPhoto)
       if (idpPhoto) fd.append('idpPhoto', idpPhoto)
+      if (paymentMethod === 'BANK_TRANSFER' && bankSlip) {
+        fd.append('bankSlip', bankSlip)
+      }
 
       const res = await api.post('/bookings/customer', fd, {
         headers: { 'Content-Type': 'multipart/form-data' }
@@ -369,12 +424,17 @@ export default function BookingPage() {
         <div className="form-page">
           <div className="form-container">
             <div style={{ paddingTop: 12, paddingBottom: 24 }}>
-              <div className="section-label">✦ Step 2 of 5</div>
+              <div className="section-label">✦ Step 2 of 4</div>
               <h1 className="page-title">Rental Agreement</h1>
-              <p className="page-subtitle">Please review the terms and conditions of your rental</p>
+              <p className="page-subtitle">Please scroll through and review the terms of your rental contract</p>
             </div>
 
-            <div className="form-card" style={{ padding: '24px', maxHeight: '400px', overflowY: 'auto', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16 }}>
+            <div 
+              ref={termsRef}
+              onScroll={handleScroll}
+              className="form-card" 
+              style={{ padding: '24px', maxHeight: '400px', overflowY: 'auto', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16 }}
+            >
               <h3 style={{ fontFamily: 'Outfit', color: 'white', fontSize: 18, fontWeight: 800, textAlign: 'center', marginBottom: 20 }}>MIGGA SCOOTER RENTAL AGREEMENT</h3>
               
               <div style={{ fontSize: 13, color: 'var(--slate-light)', lineHeight: '1.6', display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -400,27 +460,27 @@ export default function BookingPage() {
                     </tr>
                     <tr>
                       <td style={{ padding: '8px 12px', fontWeight: 600, color: 'white' }}>Total Amount:</td>
-                      <td style={{ padding: '8px 12px', color: 'var(--coral)', fontWeight: 700 }}>${booking.totalAmount.toFixed(2)}</td>
+                      <td style={{ padding: '8px 12px', color: 'var(--coral)', fontWeight: 700 }}>Rs. {booking.totalAmount.toFixed(2)}</td>
                     </tr>
                   </tbody>
                 </table>
 
-                <h4 style={{ color: 'white', margin: '8px 0 2px 0', fontSize: 14 }}>1. Operating Conditions</h4>
-                <p>The Renter agrees that they possess a valid driver's license and International Driving Permit (IDP) suitable for operating a motor scooter. Renter warrants they will wear a protective helmet at all times when riding the scooter.</p>
-
-                <h4 style={{ color: 'white', margin: '8px 0 2px 0', fontSize: 14 }}>2. Scooter Maintenance & Care</h4>
-                <p>The Renter acknowledges receipt of the scooter in excellent mechanical and aesthetic condition. The Renter agrees to return the scooter in the same condition, normal wear and tear excepted. Any damage will be charged from the Security Deposit or billed separately if expenses exceed the deposit.</p>
-
-                <h4 style={{ color: 'white', margin: '8px 0 2px 0', fontSize: 14 }}>3. Security Deposit</h4>
-                <p>A Security Deposit of ${securityDeposit.toFixed(2)} is charged. This deposit is fully refundable upon the return of the scooter in undamaged and clean condition.</p>
-
-                <h4 style={{ color: 'white', margin: '8px 0 2px 0', fontSize: 14 }}>4. Liability & Insurance</h4>
-                <p>The Renter assumes full responsibility for all risks associated with operating the scooter, including third-party liability, personal injury, property damage, and traffic citations. Owner is not liable for any claims resulting from the operation of the vehicle by Renter.</p>
+                {rules.map((rule, idx) => (
+                  <div key={idx} style={{ marginBottom: 12 }}>
+                    <h4 style={{ color: 'white', margin: '8px 0 2px 0', fontSize: 14 }}>{rule.title}</h4>
+                    <p style={{ margin: 0 }}>{rule.description.replace('{securityDeposit}', securityDeposit.toFixed(2))}</p>
+                  </div>
+                ))}
               </div>
             </div>
 
-            <button className="btn btn-primary btn-full" onClick={() => setStep('sign')} style={{ marginTop: 24 }}>
-              ✍️ Proceed to Digital Signature
+            <button 
+              className="btn btn-primary btn-full" 
+              onClick={() => setStep('sign')} 
+              disabled={!hasReadAgreement}
+              style={{ marginTop: 24 }}
+            >
+              {hasReadAgreement ? '✍️ Proceed to Digital Signature' : '📜 Scroll to bottom to unlock signature'}
             </button>
           </div>
         </div>
@@ -435,7 +495,7 @@ export default function BookingPage() {
         <div className="form-page">
           <div className="form-container">
             <div style={{ paddingTop: 12, paddingBottom: 24 }}>
-              <div className="section-label">✦ Step 3 of 5</div>
+              <div className="section-label">✦ Step 3 of 4</div>
               <h1 className="page-title">Digital Signature</h1>
               <p className="page-subtitle">Please draw your signature inside the box to sign the contract</p>
             </div>
@@ -443,7 +503,7 @@ export default function BookingPage() {
             <div className="form-card" style={{ display: 'flex', flexDirection: 'column', gap: 16, alignItems: 'center' }}>
               <div style={{ width: '100%' }}>
                 <label className="form-label" style={{ marginBottom: 8 }}>Draw Signature *</label>
-                <div style={{ background: '#0f172a', border: '2px dashed rgba(255, 107, 74, 0.4)', borderRadius: 16, overflow: 'hidden', touchAction: 'none' }}>
+                <div style={{ background: '#ffffff', border: '2px dashed rgba(255, 107, 74, 0.4)', borderRadius: 16, overflow: 'hidden', touchAction: 'none' }}>
                   <canvas
                     ref={canvasRef}
                     width={500}
@@ -464,7 +524,7 @@ export default function BookingPage() {
                   />
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10 }}>
-                  <span style={{ fontSize: 12, color: 'var(--slate)' }}>Draw with your mouse or finger</span>
+                  <span style={{ fontSize: 12, color: 'var(--slate)' }}>Draw inside the white box</span>
                   <button type="button" className="btn btn-outline" onClick={clearCanvas} style={{ padding: '4px 12px', fontSize: 12, height: 'auto', minWidth: 'auto', background: 'rgba(255, 255, 255, 0.05)', borderColor: 'rgba(255, 255, 255, 0.1)' }}>
                     🧹 Clear Canvas
                   </button>
@@ -489,62 +549,96 @@ export default function BookingPage() {
   }
 
   if (step === 'confirm_sign' && booking) {
+    const signedDateStr = new Date().toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })
+    const signedTimeStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+
     return (
       <>
         <Navbar />
         <div className="form-page">
           <div className="form-container">
             <div style={{ paddingTop: 12, paddingBottom: 24 }}>
-              <div className="section-label">✦ Step 4 of 5</div>
+              <div className="section-label">✦ Step 4 of 4</div>
               <h1 className="page-title">Signature Confirmed</h1>
-              <p className="page-subtitle">Your agreement is signed and verified</p>
+              <p className="page-subtitle">Your agreement is signed and verified. Preview your digital contract below.</p>
             </div>
 
-            <div className="form-card" style={{ padding: '24px', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16 }}>
-              <h3 style={{ fontFamily: 'Outfit', color: 'white', fontSize: 18, fontWeight: 800, textAlign: 'center', marginBottom: 20 }}>MIGGA SCOOTER RENTAL AGREEMENT</h3>
+            {/* Premium PDF document-style preview */}
+            <div 
+              style={{ 
+                padding: '40px', 
+                background: '#ffffff', 
+                color: '#1e293b', 
+                border: '1px solid #e2e8f0', 
+                borderRadius: 8, 
+                boxShadow: '0 10px 30px rgba(0,0,0,0.25)', 
+                fontFamily: 'Inter, system-ui, sans-serif',
+                marginBottom: 24
+              }}
+            >
+              <div style={{ textAlign: 'center', marginBottom: 28, borderBottom: '2px solid #0f172a', paddingBottom: 16 }}>
+                <h2 style={{ fontSize: 22, fontWeight: 800, color: '#0f172a', letterSpacing: '0.05em', margin: 0, fontFamily: 'Outfit, sans-serif' }}>MIGGA SCOOTER RENTALS</h2>
+                <p style={{ fontSize: 11, color: '#64748b', fontWeight: 600, letterSpacing: '0.1em', margin: '6px 0 0 0' }}>OFFICIAL DIGITAL AGREEMENT & LIABILITY WAIVER</p>
+              </div>
               
-              <div style={{ background: 'rgba(34,197,94,0.1)', border: '1.5px solid rgba(34,197,94,0.25)', borderRadius: 12, padding: 14, color: '#4ade80', fontSize: 13, textAlign: 'center', marginBottom: 20 }}>
-                ✓ <strong>Digital Contract Executed Successfully</strong><br />
-                Signed on {new Date().toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })} at {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+              <div style={{ fontSize: 12, display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 24, marginBottom: 28, borderBottom: '1px solid #f1f5f9', paddingBottom: 16 }}>
+                <div>
+                  <strong style={{ color: '#0f172a', fontSize: 11, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Renter Profile</strong>
+                  <div style={{ marginTop: 6, fontWeight: 500 }}>Name: {form.customerName}</div>
+                  <div>Passport Number: {form.passportNumber}</div>
+                  <div>Nationality: {form.nationality}</div>
+                  <div>Phone Contact: {form.phone}</div>
+                  <div>Email Address: {form.email}</div>
+                </div>
+                <div>
+                  <strong style={{ color: '#0f172a', fontSize: 11, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Rental Profile</strong>
+                  <div style={{ marginTop: 6, fontWeight: 500 }}>Scooter: {scooter.brand} {scooter.model} ({scooter.plateNumber})</div>
+                  <div>Pickup: {form.pickupDate} ({form.pickupType})</div>
+                  <div>Return Due: {form.returnDate}</div>
+                  <div>Rental Duration: {days} days</div>
+                  <div style={{ fontWeight: 600, color: '#0f172a', marginTop: 4 }}>Total Amount: Rs. {booking.totalAmount.toFixed(2)}</div>
+                </div>
               </div>
 
-              <div style={{ fontSize: 13, color: 'var(--slate-light)', lineHeight: '1.6', opacity: 0.65, maxHeight: '120px', overflowY: 'auto', marginBottom: 20, padding: 10, background: 'rgba(0,0,0,0.1)', borderRadius: 8 }}>
-                <p style={{ margin: 0 }}>Renter <strong>{form.customerName}</strong> (Passport: {form.passportNumber}) agrees to all operating conditions, scooter maintenance policies, liability limits, and payments related to renting scooter {scooter.brand} {scooter.model} for the period {form.pickupDate} to {form.returnDate}.</p>
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: 14, marginBottom: 28, fontSize: 12 }}>
+                <div style={{ color: '#16a34a', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                  ✓ DIGITAL SIGNATURE RECORDED
+                </div>
+                <div style={{ color: '#475569', lineHeight: '1.4' }}>
+                  This document serves as binding confirmation. Executed digitally by renter on {signedDateStr} at {signedTimeStr}. IP and metadata logged.
+                </div>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '16px', background: 'rgba(255,255,255,0.02)', borderRadius: 12, border: '1px solid rgba(255,255,255,0.06)' }}>
-                <span style={{ fontSize: 11, color: 'var(--slate)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Renter Signature</span>
-                {localSignature && (
-                  <img src={localSignature} alt="Renter Signature" style={{ maxHeight: 80, borderBottom: '1px solid rgba(255,255,255,0.2)', paddingBottom: 6 }} />
-                )}
-                <span style={{ fontSize: 13, color: 'white', fontWeight: 600, marginTop: 4 }}>{form.customerName}</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 40 }}>
+                <div>
+                  <div style={{ fontSize: 10, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Issued By</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', marginTop: 4 }}>Migga Scooter Rentals</div>
+                  <div style={{ fontSize: 11, color: '#64748b' }}>Authorized Agent Signature</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 10, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Renter Digital Signature</div>
+                  {localSignature && (
+                    <img src={localSignature} alt="Renter Signature" style={{ maxHeight: 50, maxWidth: 150, borderBottom: '1px solid #cbd5e1', paddingBottom: 4 }} />
+                  )}
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', marginTop: 4 }}>{form.customerName}</div>
+                </div>
               </div>
             </div>
 
             <button
               className="btn btn-primary btn-full"
-              style={{ marginTop: 24 }}
+              style={{ marginTop: 8 }}
               onClick={async () => {
-                if (paymentOption === 'LATER') {
-                  toast.success(`Booking ${booking.bookingId} created!`)
+                setSubmitting(true)
+                try {
+                  await api.post(`/bookings/${booking.id}/confirm-booking`)
+                  toast.success('Booking completed successfully!')
                   navigate(`/payments/success?bookingId=${booking.bookingId}&payLater=true`)
-                } else {
-                  setSubmitting(true)
-                  try {
-                    const payRes = await api.post('/payments/create-order-public', {
-                      bookingId: booking.id,
-                      returnUrl: `${FRONTEND_URL}/payments/success`,
-                      cancelUrl: `${FRONTEND_URL}/payments/cancel`,
-                    })
-                    const orderData = payRes.data?.data ?? payRes.data
-                    setPaypalOrderId(orderData.paypalOrderId)
-                    setStep('payment')
-                  } catch (err) {
-                    console.error('Failed to pre-create PayPal order:', err)
-                    setStep('payment')
-                  } finally {
-                    setSubmitting(false)
-                  }
+                } catch (err) {
+                  console.error('Failed to finalize booking:', err)
+                  toast.error('Failed to finalize booking. Please try again.')
+                } finally {
+                  setSubmitting(false)
                 }
               }}
               disabled={submitting}
@@ -552,107 +646,11 @@ export default function BookingPage() {
               {submitting ? (
                 <>
                   <div className="spinner spinner-sm" />
-                  Preparing Payment...
+                  Finalizing Booking...
                 </>
-              ) : paymentOption === 'NOW' ? (
-                '💳 Proceed to Payment (Step 5 of 5)'
               ) : (
-                '📅 Confirm Booking & Pay Later'
+                '🏁 Complete Booking & Get QR Code'
               )}
-            </button>
-          </div>
-        </div>
-      </>
-    )
-  }
-
-  if (step === 'payment' && booking) {
-    console.log('PAYPAL_CLIENT_ID used in script:', PAYPAL_CLIENT_ID)
-    return (
-      <>
-        <Navbar />
-        <div className="form-page">
-          <div className="form-container">
-            <div style={{ paddingTop: 12, paddingBottom: 24 }}>
-              <div className="section-label">✦ Step 5 of 5</div>
-              <h1 className="page-title">Complete Payment</h1>
-              <p className="page-subtitle">Pay securely via PayPal to confirm your booking</p>
-            </div>
-
-            <div className="booking-ref-card" style={{ width: '100%', maxWidth: '100%', marginBottom: 24 }}>
-              <div className="booking-ref-label">Booking Reference</div>
-              <div className="booking-ref-value">{booking.bookingId}</div>
-              <div style={{ fontSize: 12, color: 'var(--slate-light)', marginTop: 8 }}>
-                Check your email for booking details. A PayPal email was also sent.
-              </div>
-            </div>
-
-            <div className="price-summary" style={{ marginBottom: 24 }}>
-              <div className="price-row">
-                <span>Rental Total</span>
-                <span className="val">${rentalCost.toFixed(2)}</span>
-              </div>
-              {deliveryFee > 0 && (
-                <div className="price-row">
-                  <span>Delivery Fee</span>
-                  <span className="val">${deliveryFee.toFixed(2)}</span>
-                </div>
-              )}
-              <div className="price-row">
-                <span>Security Deposit</span>
-                <span className="val">${securityDeposit.toFixed(2)}</span>
-              </div>
-              <div className="price-row total">
-                <span>Total</span>
-                <span className="val">${booking.totalAmount.toFixed(2)}</span>
-              </div>
-            </div>
-
-            {PAYPAL_CLIENT_ID ? (
-              <div className="paypal-wrapper">
-                <PayPalScriptProvider options={{ clientId: PAYPAL_CLIENT_ID, currency: 'USD' }}>
-                  <PayPalButtons
-                    style={{ layout: 'vertical', color: 'gold', shape: 'rect', label: 'pay' }}
-                    createOrder={async () => {
-                      if (paypalOrderId) return paypalOrderId
-                      const payRes = await api.post('/payments/create-order-public', {
-                        bookingId: booking.id,
-                        returnUrl: `${FRONTEND_URL}/payments/success`,
-                        cancelUrl: `${FRONTEND_URL}/payments/cancel`,
-                      })
-                      const od = payRes.data?.data ?? payRes.data
-                      return od.paypalOrderId
-                    }}
-                    onApprove={async (data) => {
-                      try {
-                        await api.post(`/payments/capture/${data.orderID}`)
-                        navigate(`/payments/success?bookingId=${booking.bookingId}`)
-                      } catch (err: any) {
-                        console.error('PayPal capture error:', err)
-                        const errMsg = err?.response?.data?.message ?? 'Payment capture failed. Please contact support.'
-                        toast.error(errMsg)
-                      }
-                    }}
-                    onError={(err) => {
-                      console.error('PayPal Smart Buttons error:', err)
-                      toast.error('PayPal error. Please try again.')
-                    }}
-                    onCancel={() => toast('Payment cancelled. You can retry anytime.')}
-                  />
-                </PayPalScriptProvider>
-              </div>
-            ) : (
-              <div style={{ background: 'rgba(255,107,74,0.1)', border: '1px solid rgba(255,107,74,0.3)', borderRadius: 12, padding: 16, textAlign: 'center', marginBottom: 20 }}>
-                <div style={{ fontSize: 14, color: '#ff9e85', marginBottom: 8 }}>⚠️ PayPal not configured</div>
-                <div style={{ fontSize: 12, color: 'var(--slate-light)' }}>
-                  Set VITE_PAYPAL_CLIENT_ID in your .env file.<br />
-                  Your booking <strong style={{ color: 'white' }}>{booking.bookingId}</strong> is saved — we'll email you a payment link.
-                </div>
-              </div>
-            )}
-
-            <button className="btn btn-outline btn-full" onClick={() => navigate(`/booking/${booking.bookingId}`)} style={{ marginTop: 8 }}>
-              View Booking Status
             </button>
           </div>
         </div>
@@ -666,7 +664,7 @@ export default function BookingPage() {
       <div className="form-page">
         <div className="form-container">
           <div style={{ paddingTop: 12, paddingBottom: 24 }}>
-            <div className="section-label">✦ Step 1 of 5</div>
+            <div className="section-label">✦ Step 1 of 4</div>
             <h1 className="page-title">Book Your Scooter</h1>
             <p className="page-subtitle">Fill in your details to reserve this scooter</p>
           </div>
@@ -681,7 +679,7 @@ export default function BookingPage() {
               <div className="scooter-name">{scooter.title}</div>
               <div className="scooter-model">{scooter.brand} {scooter.model} · {scooter.year}</div>
               <div style={{ marginTop: 6, fontSize: 13, color: 'var(--slate-light)' }}>
-                From ${Number(scooter.dailyRate).toFixed(0)}/day · ${Number(scooter.weeklyRate).toFixed(0)}/week · ${Number(scooter.monthlyRate).toFixed(0)}/month
+                From Rs. {Number(scooter.dailyRate).toFixed(0)}/day · Rs. {Number(scooter.weeklyRate).toFixed(0)}/week · Rs. {Number(scooter.monthlyRate).toFixed(0)}/month
               </div>
             </div>
           </div>
@@ -752,7 +750,7 @@ export default function BookingPage() {
 
               {days > 0 && scooter && (
                 <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: 'var(--slate-light)', marginBottom: 12 }}>
-                  📊 <strong style={{ color: 'white' }}>{days} day{days !== 1 ? 's' : ''}</strong> · {describeRate(scooter, days)} = <strong style={{ color: 'var(--coral)' }}>${rentalCost.toFixed(2)}</strong>
+                  📊 <strong style={{ color: 'white' }}>{days} day{days !== 1 ? 's' : ''}</strong> · {describeRate(scooter, days)} = <strong style={{ color: 'var(--coral)' }}>Rs. {rentalCost.toFixed(2)}</strong>
                 </div>
               )}
 
@@ -804,7 +802,7 @@ export default function BookingPage() {
                     <option value="">— Select your area —</option>
                     {zones.map(z => (
                       <option key={z.id} value={z.id}>
-                        {z.zoneName} ({Number(z.distanceKm).toFixed(1)} km) — ${Number(z.fee).toFixed(2)}
+                        {z.zoneName} ({Number(z.distanceKm).toFixed(1)} km) — Rs. {Number(z.fee).toFixed(2)}
                       </option>
                     ))}
                   </select>
@@ -851,48 +849,83 @@ export default function BookingPage() {
               </div>
             </div>
 
-            {/* Payment Option */}
+            {/* Payment Method */}
             <div className="form-card fade-up fade-up-6">
-              <div className="form-card-title">💳 Payment Option</div>
+              <div className="form-card-title">💳 Payment Method</div>
               <div className="pickup-options">
                 <div className="pickup-option">
-                  <input type="radio" id="pay-now" name="paymentOption" value="NOW" checked={paymentOption === 'NOW'} onChange={() => setPaymentOption('NOW')} />
-                  <label htmlFor="pay-now" className="pickup-option-label">
-                    <span className="pickup-option-icon">⚡</span>
-                    <span className="pickup-option-text">Pay Now</span>
-                    <span className="pickup-option-sub">Secure via PayPal</span>
+                  <input type="radio" id="pay-cash" name="paymentMethod" value="CASH" checked={paymentMethod === 'CASH'} onChange={() => setPaymentMethod('CASH')} />
+                  <label htmlFor="pay-cash" className="pickup-option-label">
+                    <span className="pickup-option-icon">💵</span>
+                    <span className="pickup-option-text">Cash (At Pickup)</span>
+                    <span className="pickup-option-sub">Pay in LKR upon collection</span>
                   </label>
                 </div>
                 <div className="pickup-option">
-                  <input type="radio" id="pay-later" name="paymentOption" value="LATER" checked={paymentOption === 'LATER'} onChange={() => setPaymentOption('LATER')} />
-                  <label htmlFor="pay-later" className="pickup-option-label">
-                    <span className="pickup-option-icon">🤝</span>
-                    <span className="pickup-option-text">Pay Later</span>
-                    <span className="pickup-option-sub">Pay at pickup / office</span>
+                  <input type="radio" id="pay-card" name="paymentMethod" value="CARD" checked={paymentMethod === 'CARD'} onChange={() => setPaymentMethod('CARD')} />
+                  <label htmlFor="pay-card" className="pickup-option-label">
+                    <span className="pickup-option-icon">💳</span>
+                    <span className="pickup-option-text">Card (At Pickup)</span>
+                    <span className="pickup-option-sub">Extra 3.5% processing fee</span>
+                  </label>
+                </div>
+                <div className="pickup-option">
+                  <input type="radio" id="pay-bank" name="paymentMethod" value="BANK_TRANSFER" checked={paymentMethod === 'BANK_TRANSFER'} onChange={() => setPaymentMethod('BANK_TRANSFER')} />
+                  <label htmlFor="pay-bank" className="pickup-option-label">
+                    <span className="pickup-option-icon">🏛️</span>
+                    <span className="pickup-option-text">Bank Transfer (Now)</span>
+                    <span className="pickup-option-sub">Transfer now & upload receipt</span>
                   </label>
                 </div>
               </div>
+
+              {paymentMethod === 'BANK_TRANSFER' && (
+                <div style={{ marginTop: 20, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 16 }}>
+                  <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: 12, padding: 14, fontSize: 13, color: 'var(--slate-light)', marginBottom: 16 }}>
+                    <strong>Bank Transfer Details:</strong><br />
+                    Bank: Sampath Bank<br />
+                    Account Name: Migga Scooter Rentals (Pvt) Ltd<br />
+                    Account Number: 1234 5678 9012<br />
+                    Branch: Colombo Fort
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Upload Bank Transfer Slip *</label>
+                    <div className="upload-area">
+                      <input type="file" accept="image/*" onChange={e => setBankSlip(e.target.files?.[0] ?? null)} required />
+                      <span className="upload-icon">🧾</span>
+                      <div className="upload-label"><span>Tap to upload</span> payment receipt/slip</div>
+                      {bankSlip && <div className="upload-name">✓ {bankSlip.name}</div>}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Price summary */}
             <div className="price-summary fade-up">
               <div className="price-row">
                 <span>Rental ({Math.max(days, 1)} days)</span>
-                <span className="val">${rentalCost.toFixed(2)}</span>
+                <span className="val">Rs. {rentalCost.toFixed(2)}</span>
               </div>
               {deliveryFee > 0 && (
                 <div className="price-row">
                   <span>Delivery Fee</span>
-                  <span className="val">${deliveryFee.toFixed(2)}</span>
+                  <span className="val">Rs. {deliveryFee.toFixed(2)}</span>
                 </div>
               )}
               <div className="price-row">
                 <span>Security Deposit</span>
-                <span className="val">${securityDeposit.toFixed(2)}</span>
+                <span className="val">Rs. {securityDeposit.toFixed(2)}</span>
               </div>
+              {paymentMethod === 'CARD' && (
+                <div className="price-row">
+                  <span>Card Fee (3.5%)</span>
+                  <span className="val">Rs. {cardFee.toFixed(2)}</span>
+                </div>
+              )}
               <div className="price-row total">
                 <span>Total</span>
-                <span className="val">${totalAmount.toFixed(2)}</span>
+                <span className="val">Rs. {totalAmount.toFixed(2)}</span>
               </div>
               <p style={{ fontSize: 11, color: 'var(--slate)', marginTop: 10 }}>
                 Security deposit is refunded upon return of the scooter in good condition.
@@ -910,7 +943,7 @@ export default function BookingPage() {
               ) : isAvailable === false ? (
                 '❌ Scooter Unavailable'
               ) : (
-                paymentOption === 'NOW' ? '💳 Continue to Payment' : '📅 Book & Pay Later'
+                '📝 Continue to Agreement'
               )}
             </button>
           </form>

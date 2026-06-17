@@ -8,6 +8,9 @@ interface Extension {
   requestedUntil: string
   reason: string
   status: 'PENDING' | 'APPROVED' | 'REJECTED'
+  extraAmount?: number
+  paymentStatus?: string
+  paymentMethod?: string
   createdAt: string
 }
 
@@ -29,6 +32,7 @@ interface Booking {
   deliveryFee: number
   qrUsed: boolean
   agreementSigned: boolean
+  paymentMethod?: string
   qrCode?: string
   scooter?: { title: string; brand: string; model: string; color: string; plateNumber: string }
   deliveryZone?: { zoneName: string; distanceKm: number; fee: number }
@@ -38,8 +42,8 @@ interface Booking {
 
 const STATUS_STEPS = [
   { key: 'PENDING', label: 'Booking Received', sub: 'Your booking is being processed' },
-  { key: 'AWAITING_PAYMENT', label: 'Awaiting Payment', sub: 'Please complete your PayPal payment' },
-  { key: 'CONFIRMED', label: 'Confirmed', sub: 'Payment received, booking confirmed' },
+  { key: 'AWAITING_PAYMENT', label: 'Awaiting Payment', sub: 'Present QR at pickup to pay cash/card' },
+  { key: 'CONFIRMED', label: 'Confirmed', sub: 'Booking is confirmed and ready' },
   { key: 'PICKED_UP', label: 'Picked Up', sub: 'Scooter is with you — enjoy the ride!' },
   { key: 'RETURNED', label: 'Returned', sub: 'Scooter returned, deposit processing' },
 ]
@@ -120,7 +124,6 @@ export default function BookingStatusPage() {
       setExtSuccess(true)
       setExtDate('')
       setExtReason('')
-      // Reload booking to reflect the pending request
       setRefreshTrigger(c => c + 1)
     } catch (err: any) {
       setExtError(
@@ -200,6 +203,12 @@ export default function BookingStatusPage() {
   const pendingExtension = booking.extensions?.find(ext => ext.status === 'PENDING')
   const historicalExtensions = booking.extensions?.filter(ext => ext.status !== 'PENDING') || []
 
+  // Check for approved unpaid extension
+  const approvedUnpaidExtension = booking.extensions?.find(ext => ext.status === 'APPROVED' && ext.paymentStatus === 'PENDING')
+
+  // Rule: hide QR code if BANK_TRANSFER and not paid/confirmed yet
+  const showQr = booking.qrCode && (booking.paymentMethod !== 'BANK_TRANSFER' || isPaid || booking.bookingStatus === 'CONFIRMED' || booking.bookingStatus === 'PICKED_UP')
+
   let minExtDate = ''
   if (booking.returnDate) {
     const returnDateObj = new Date(booking.returnDate)
@@ -217,6 +226,27 @@ export default function BookingStatusPage() {
             <h1 className="page-title">{booking.bookingId}</h1>
             <p className="page-subtitle">Real-time status of your scooter rental</p>
           </div>
+
+          {/* Approved Unpaid Extension Alert Banner */}
+          {approvedUnpaidExtension && (
+            <div 
+              style={{ 
+                background: 'rgba(245,158,11,0.12)', 
+                border: '1.5px solid rgba(245,158,11,0.3)', 
+                borderRadius: 16, 
+                padding: '16px 20px', 
+                color: '#f59e0b', 
+                fontSize: 13, 
+                marginBottom: 20, 
+                lineHeight: '1.6',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+              }}
+            >
+              ⚠️ <strong>Extension Approved — Payment Pending</strong><br />
+              Your rental extension request until <strong>{fmt(approvedUnpaidExtension.requestedUntil)}</strong> has been approved. <br />
+              An extra amount of <strong>Rs. {Number(approvedUnpaidExtension.extraAmount).toFixed(2)}</strong> must be paid via <strong>Cash</strong> or <strong>Bank Transfer</strong> when you drop off the scooter.
+            </div>
+          )}
 
           {/* Status Timeline */}
           {booking.bookingStatus !== 'CANCELLED' ? (
@@ -295,9 +325,6 @@ export default function BookingStatusPage() {
                       }}
                       id="google-review-btn"
                     >
-                      <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="currentColor" style={{ color: '#ea4335' }}>
-                        <path d="M12.24 10.285V14.4h6.887c-.648 2.41-2.519 4.114-5.136 4.114-3.44 0-6.23-2.79-6.23-6.23s2.79-6.23 6.23-6.23c1.7 0 3.14.68 4.25 1.81l3.11-3.11C19.34 2.89 16.03 1.8 12.24 1.8 6.53 1.8 1.8 6.53 1.8 12.24s4.73 10.44 10.44 10.44c5.96 0 10.15-4.19 10.15-10.15 0-.67-.08-1.35-.22-2.25H12.24z"/>
-                      </svg>
                       Google Review
                     </a>
                   )}
@@ -326,9 +353,6 @@ export default function BookingStatusPage() {
                       }}
                       id="tripadvisor-review-btn"
                     >
-                      <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="currentColor" style={{ color: '#00af87' }}>
-                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-3.5-9c.83 0 1.5-.67 1.5-1.5S9.33 6 8.5 6 7 6.67 7 7.5 7.67 9 8.5 9zm7 0c.83 0 1.5-.67 1.5-1.5S16.33 6 15.5 6 14 6.67 14 7.5 14.67 9 15.5 9zm-7 1.5c.55 0 1-.45 1-1s-.45-1-1-1-1 .45-1 1 .45 1 1 1zm7 0c.55 0 1-.45 1-1s-.45-1-1-1-1 .45-1 1 .45 1 1 1zm-3.5 4.5c2.33 0 4.31-1.46 5.11-3.5H4.89c.8 2.04 2.78 3.5 5.11 3.5z"/>
-                      </svg>
                       TripAdvisor
                     </a>
                   )}
@@ -338,7 +362,7 @@ export default function BookingStatusPage() {
           )}
 
           {/* Booking QR Code Card */}
-          {booking.qrCode && isPaid && (
+          {showQr && (
             <div className="booking-detail-card fade-up" style={{ marginBottom: 16 }}>
               <div className="booking-detail-header" style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,107,74,0.8)', marginBottom: 4 }}>✦ Scooter Collection</div>
@@ -526,6 +550,9 @@ export default function BookingStatusPage() {
                         <div key={ext.id} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 10, padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                             <span style={{ fontSize: 13, fontWeight: 600, color: 'white' }}>Until {fmt(ext.requestedUntil)}</span>
+                            {ext.extraAmount !== undefined && Number(ext.extraAmount) > 0 && (
+                              <span style={{ fontSize: 12, color: 'var(--coral)', fontWeight: 600 }}>Amount: Rs. {Number(ext.extraAmount).toFixed(2)} ({ext.paymentStatus})</span>
+                            )}
                             <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Reason: "{ext.reason}"</span>
                           </div>
                           <div>
@@ -554,35 +581,48 @@ export default function BookingStatusPage() {
           {/* Payment Details */}
           <div className="booking-detail-card fade-up">
             <div className="booking-detail-header">
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,107,74,0.8)', marginBottom: 4 }}>Payment</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,107,74,0.8)', marginBottom: 4 }}>Payment Details</div>
               <div style={{ fontFamily: 'Outfit', fontSize: 20, fontWeight: 800, color: isPaid ? '#4ade80' : 'var(--coral)' }}>
-                {isPaid ? '✅ Paid' : '⏳ Pending'}
+                {isPaid ? '✅ Confirmed / Paid' : booking.paymentMethod === 'BANK_TRANSFER' ? '🏛️ Verification Pending' : '⏳ Pay at Pickup'}
               </div>
             </div>
             <div className="booking-detail-body">
               <div className="detail-row">
                 <span className="detail-label">Rental Cost</span>
-                <span className="detail-value">${Math.max(0, Number(booking.totalAmount) - Number(booking.securityDeposit) - Number(booking.deliveryFee)).toFixed(2)}</span>
+                <span className="detail-value">Rs. {Math.max(0, Number(booking.totalAmount) - Number(booking.securityDeposit) - Number(booking.deliveryFee)).toFixed(2)}</span>
               </div>
               {Number(booking.deliveryFee) > 0 && (
                 <div className="detail-row">
                   <span className="detail-label">Delivery Fee</span>
-                  <span className="detail-value">${Number(booking.deliveryFee).toFixed(2)}</span>
+                  <span className="detail-value">Rs. {Number(booking.deliveryFee).toFixed(2)}</span>
                 </div>
               )}
               <div className="detail-row">
                 <span className="detail-label">Security Deposit</span>
-                <span className="detail-value">${Number(booking.securityDeposit).toFixed(2)}</span>
+                <span className="detail-value">Rs. {Number(booking.securityDeposit).toFixed(2)}</span>
               </div>
               <div className="detail-row" style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 14 }}>
-                <span style={{ fontWeight: 700, color: 'white', fontFamily: 'Outfit', fontSize: 16 }}>Total Paid</span>
+                <span style={{ fontWeight: 700, color: 'white', fontFamily: 'Outfit', fontSize: 16 }}>Total Amount</span>
                 <span style={{ fontWeight: 800, color: 'var(--coral)', fontFamily: 'Outfit', fontSize: 18 }}>
-                  ${Number(booking.totalAmount).toFixed(2)}
+                  Rs. {Number(booking.totalAmount).toFixed(2)}
                 </span>
               </div>
+              {approvedUnpaidExtension && (
+                <>
+                  <div className="detail-row" style={{ borderTop: '1.5px dashed rgba(245, 158, 11, 0.3)', paddingTop: 14, marginTop: 4 }}>
+                    <span style={{ fontWeight: 700, color: '#f59e0b', fontFamily: 'Outfit', fontSize: 15 }}>Extension Due Balance</span>
+                    <span style={{ fontWeight: 800, color: '#f59e0b', fontFamily: 'Outfit', fontSize: 17 }}>
+                      Rs. {Number(approvedUnpaidExtension.extraAmount).toFixed(2)}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 11, color: 'rgba(245, 158, 11, 0.8)', textAlign: 'right', marginTop: -6, marginBottom: 8 }}>
+                    * Payable at drop-off via Cash, Bank Transfer, or Card (+3.5% fee)
+                  </div>
+                </>
+              )}
               <div className="detail-row">
                 <span className="detail-label">Payment Method</span>
-                <span className="detail-value">PayPal</span>
+                <span className="detail-value" style={{ textTransform: 'uppercase' }}>{booking.paymentMethod || 'CASH'}</span>
               </div>
               {latestPayment?.paidAt && (
                 <div className="detail-row">

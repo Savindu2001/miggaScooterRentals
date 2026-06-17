@@ -6,6 +6,7 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   UploadedFile,
   UploadedFiles,
   UseInterceptors,
@@ -24,7 +25,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { Public } from '../common/decorators/public.decorator';
 import { passportImageStorage, signatureImageStorage, agreementPdfStorage } from '../uploads/multer.config';
 import { CreateBookingDto } from './dto/create-booking.dto';
-import { UpdateBookingDto, UpdateBookingStatusDto, VerifyQrDto, SignAgreementDto } from './dto/update-booking.dto';
+import { UpdateBookingDto, UpdateBookingStatusDto, VerifyQrDto, SignAgreementDto, ConfirmPickupDto, ConfirmReturnDto } from './dto/update-booking.dto';
 import { BookingsService } from './bookings.service';
 
 @ApiTags('Bookings')
@@ -86,6 +87,13 @@ export class BookingsController {
     return this.bookingsService.verifyQr(dto);
   }
 
+  @Public()
+  @Get('rules')
+  @ApiOperation({ summary: 'Get unified rental agreement rules and regulations' })
+  getRules() {
+    return this.bookingsService.getAgreementRules();
+  }
+
   @Get(':id')
   @Roles(Role.ADMIN, Role.STAFF)
   @ApiOperation({ summary: 'Get booking by internal ID' })
@@ -107,6 +115,7 @@ export class BookingsController {
       [
         { name: 'passportPhoto', maxCount: 1 },
         { name: 'idpPhoto', maxCount: 1 },
+        { name: 'bankSlip', maxCount: 1 },
       ],
       passportImageStorage,
     ),
@@ -119,6 +128,7 @@ export class BookingsController {
     files: {
       passportPhoto?: Express.Multer.File[];
       idpPhoto?: Express.Multer.File[];
+      bankSlip?: Express.Multer.File[];
     },
   ) {
     return this.bookingsService.create(dto, files);
@@ -199,5 +209,46 @@ export class BookingsController {
     @UploadedFile() pdfFile: Express.Multer.File,
   ) {
     return this.bookingsService.uploadAgreementPdf(id, pdfFile);
+  }
+
+  @Public()
+  @Post(':id/confirm-booking')
+  @ApiOperation({ summary: 'Finalize booking after signing agreement — sends confirmation' })
+  confirmBooking(@Param('id') id: string) {
+    return this.bookingsService.confirmBooking(id);
+  }
+
+  @Public()
+  @Post('scan-qr')
+  @ApiOperation({ summary: 'Scan QR code to fetch booking details' })
+  scanQr(@Body() dto: VerifyQrDto) {
+    return this.bookingsService.scanQr(dto);
+  }
+
+  @Public()
+  @Post(':id/admin-confirm-pickup')
+  @ApiOperation({ summary: 'Admin confirms pickup and registers payment' })
+  confirmPickup(@Param('id') id: string, @Body() dto: ConfirmPickupDto) {
+    return this.bookingsService.confirmPickup(id, dto);
+  }
+
+  @Public()
+  @Post(':id/admin-confirm-return')
+  @ApiOperation({ summary: 'Admin confirms scooter return and processes drop-off payment' })
+  confirmReturn(@Param('id') id: string, @Body() dto: ConfirmReturnDto) {
+    return this.bookingsService.confirmReturn(id, dto);
+  }
+
+  @Public()
+  @Get(':id/agreement')
+  @ApiOperation({ summary: 'Stream dynamic rental agreement PDF' })
+  async getAgreement(@Param('id') id: string, @Res() res: any) {
+    const buffer = await this.bookingsService.getAgreementPdf(id);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename=agreement-${id}.pdf`,
+      'Content-Length': buffer.length,
+    });
+    res.end(buffer);
   }
 }

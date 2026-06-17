@@ -1,10 +1,10 @@
 {
   "new_booking_email": {
     "subject": "New Booking Request — {{bookingId}} | {{systemName}}",
-    "body": "Hi {{customerName}},\n\nYour booking has been received successfully.\n\nBooking Details:\n- Booking ID: {{bookingId}}\n- Scooter: {{scooterTitle}}\n- Pickup: {{pickupDate}}\n- Return: {{returnDate}}\n- Total Amount: ${{totalAmount}}\n- Security Deposit: ${{securityDeposit}}\n\nPlease complete payment to secure your reservation.\n\nPayment Link: {{paymentLink}}"
+    "body": "Hi {{customerName}},\n\nYour booking has been received successfully.\n\nBooking Details:\n- Booking ID: {{bookingId}}\n- Scooter: {{scooterTitle}}\n- Pickup: {{pickupDate}}\n- Return: {{returnDate}}\n- Total Amount: Rs. {{totalAmount}}\n- Security Deposit: Rs. {{securityDeposit}}\n\nPlease complete the agreement to finalize your booking."
   },
   "new_booking_whatsapp": {
-    "body": "🛵 *MIGGA RENTALS*\n\nHello {{customerName}}!\n\n✅ Your booking has been created.\n\n📋 *Booking ID:* {{bookingId}}\n📅 *Pickup:* {{pickupDate}}\n📅 *Return:* {{returnDate}}\n💰 *Total:* ${{totalAmount}}\n\nPlease complete payment to confirm your reservation:\n🔗 {{paymentLink}}"
+    "body": "🛵 *MIGGA RENTALS*\n\nHello {{customerName}}!\n\n✅ Your booking has been created.\n\n📋 *Booking ID:* {{bookingId}}\n📅 *Pickup:* {{pickupDate}}\n📅 *Return:* {{returnDate}}\n💰 *Total:* Rs. {{totalAmount}}\n\nPlease sign the agreement to finalize your booking:\n🔗 {{paymentLink}}"
   },
   "confirm_email": {
     "subject": "Booking Confirmed — {{bookingId}} | {{systemName}}",
@@ -15,7 +15,7 @@
   },
   "payment_success_email": {
     "subject": "Payment Received — {{bookingId}} | {{systemName}}",
-    "body": "Hi {{customerName}},\n\nWe have received your payment for booking {{bookingId}}.\n\nPayment Details:\n- Amount Paid: ${{paymentAmount}}\n- Status: CONFIRMED\n\nYour QR code has been generated. Please present it at pickup to collect your scooter."
+    "body": "Hi {{customerName}},\n\nWe have received your payment for booking {{bookingId}}.\n\nPayment Details:\n- Amount Paid: Rs. {{paymentAmount}}\n- Status: CONFIRMED\n\nYour QR code has been generated. Please present it at pickup to collect your scooter."
   },
   "payment_success_whatsapp": {
     "body": ""
@@ -31,10 +31,10 @@
   "data": {
     "new_booking_email": {
       "subject": "New Booking Request — {{bookingId}} | {{systemName}}",
-      "body": "Hi {{customerName}},\n\nYour booking has been received successfully.\n\nBooking Details:\n- Booking ID: {{bookingId}}\n- Scooter: {{scooterTitle}}\n- Pickup: {{pickupDate}}\n- Return: {{returnDate}}\n- Total Amount: ${{totalAmount}}\n- Security Deposit: ${{securityDeposit}}\n\nPlease complete payment to secure your reservation.\n\nPayment Link: {{paymentLink}}"
+      "body": "Hi {{customerName}},\n\nYour booking has been received successfully.\n\nBooking Details:\n- Booking ID: {{bookingId}}\n- Scooter: {{scooterTitle}}\n- Pickup: {{pickupDate}}\n- Return: {{returnDate}}\n- Total Amount: Rs. {{totalAmount}}\n- Security Deposit: Rs. {{securityDeposit}}\n\nPlease complete the agreement to finalize your booking."
     },
     "new_booking_whatsapp": {
-      "body": "🛵 *MIGGA RENTALS*\n\nHello {{customerName}}!\n\n✅ Your booking has been created.\n\n📋 *Booking ID:* {{bookingId}}\n📅 *Pickup:* {{pickupDate}}\n📅 *Return:* {{returnDate}}\n💰 *Total:* ${{totalAmount}}\n\nPlease complete payment to confirm your reservation:\n🔗 {{paymentLink}}"
+      "body": "🛵 *MIGGA RENTALS*\n\nHello {{customerName}}!\n\n✅ Your booking has been created.\n\n📋 *Booking ID:* {{bookingId}}\n📅 *Pickup:* {{pickupDate}}\n📅 *Return:* {{returnDate}}\n💰 *Total:* Rs. {{totalAmount}}\n\nPlease sign the agreement to finalize your booking:\n🔗 {{paymentLink}}"
     },
     "confirm_email": {
       "subject": "Booking Confirmed — {{bookingId}} | {{systemName}}",
@@ -45,17 +45,11 @@
     },
     "payment_success_email": {
       "subject": "Payment Received — {{bookingId}} | {{systemName}}",
-      "body": "Hi {{customerName}},\n\nWe have received your payment for booking {{bookingId}}.\n\nPayment Details:\n- Amount Paid: ${{paymentAmount}}\n- Status: CONFIRMED\n\nYour QR code has been generated. Please present it at pickup to collect your scooter."
+      "body": "Hi {{customerName}},\n\nWe have received your payment for booking {{bookingId}}.\n\nPayment Details:\n- Amount Paid: Rs. {{paymentAmount}}\n- Status: CONFIRMED\n\nYour QR code has been generated. Please present it at pickup to collect your scooter."
     },
     "payment_success_whatsapp": {
-      "body": "🛵 *MIGGA RENTALS*\n\nHello {{customerName}}!\n\n✅ *Payment Received!*\n\n📋 *Booking ID:* {{bookingId}}\n💰 *Amount:* ${{paymentAmount}}\n\nYour booking is *CONFIRMED*! Present your QR code at pickup. See you soon! 🎉"
+      "body": "🛵 *MIGGA RENTALS*\n\nHello {{customerName}}!\n\n✅ *Payment Received!*\n\n📋 *Booking ID:* {{bookingId}}\n💰 *Amount:* Rs. {{paymentAmount}}\n\nYour booking is *CONFIRMED*! Present your QR code at pickup. See you soon! 🎉"
     },
-    "return_reminder_email": {
-      "subject": "Return Reminder — {{bookingId}} | {{systemName}}",
-      "body": "Hi {{customerName}},\n\nThis is a reminder that your scooter {{scooterTitle}} is due for return on {{returnDate}}.\n\nPlease return the scooter on time. Need more time? Contact us to request an extension."
-    },
-    "return_reminder_whatsapp": {
-      "body": "🛵 *MIGGA RENTALS*\n\nHello {{customerName}}!\n\n⏰ *Return Reminder*\n\n📋 *Booking:* {{bookingId}}\n📅 *Due Date:* {{returnDate}}\n\nPlease return the scooter on time. Need an extension? Contact us!"
-    }
+    "success": true
   }
 }

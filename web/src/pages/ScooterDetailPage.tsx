@@ -22,7 +22,32 @@ interface Scooter {
 
 const API_BASE = import.meta.env.VITE_API_URL?.replace('/api/v1', '') ?? 'http://localhost:3000'
 
+function parseDescription(description?: string) {
+  if (!description) return null;
+  const lines = description.split('\n').map(line => line.trim()).filter(Boolean);
+  const isBulletList = lines.some(line => line.startsWith('-') || line.startsWith('*') || line.startsWith('•'));
 
+  if (isBulletList) {
+    return (
+      <ul style={{ paddingLeft: '20px', margin: '8px 0 16px 0', listStyleType: 'disc', color: 'rgba(255,255,255,0.8)', fontSize: '14px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        {lines.map((line, idx) => {
+          const content = line.replace(/^[-*•]\s*/, '');
+          return <li key={idx}>{content}</li>;
+        })}
+      </ul>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+      {lines.map((line, idx) => (
+        <p key={idx} style={{ margin: 0, fontSize: '14px', color: 'rgba(255, 255, 255, 0.8)', lineHeight: '1.6' }}>
+          {line}
+        </p>
+      ))}
+    </div>
+  );
+}
 
 export default function ScooterDetailPage() {
   const { scooterId } = useParams<{ scooterId: string }>()
@@ -145,7 +170,6 @@ export default function ScooterDetailPage() {
                   <h1 className="scooter-detail-title">{scooter.title}</h1>
                   <p className="scooter-detail-subtitle">{scooter.brand} {scooter.model} · {scooter.year}</p>
                 </div>
-                {/* Hiding scooter status badge */}
               </div>
 
               {/* Specifications tags */}
@@ -164,22 +188,22 @@ export default function ScooterDetailPage() {
               {/* Rates display block */}
               <div className="booking-detail-card" style={{ marginBottom: 20, background: 'rgba(255, 255, 255, 0.02)' }}>
                 <div className="booking-detail-header" style={{ padding: '12px 16px', background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--slate-light)' }}>💲 RENTAL TARIFFS</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--slate-light)' }}>රැ: RENTAL TARIFFS (LKR)</span>
                 </div>
                 <div className="booking-detail-body" style={{ padding: 16 }}>
                   <div className="scooter-rates" style={{ margin: 0, padding: 0, background: 'none' }}>
                     <div className="rate-item">
-                      <span className="rate-value" style={{ fontSize: 22 }}>${Number(scooter.dailyRate).toFixed(0)}</span>
+                      <span className="rate-value" style={{ fontSize: 22 }}>Rs. {Number(scooter.dailyRate).toFixed(0)}</span>
                       <span className="rate-label">Daily</span>
                     </div>
                     <div className="rate-divider" />
                     <div className="rate-item">
-                      <span className="rate-value" style={{ fontSize: 22 }}>${Number(scooter.weeklyRate).toFixed(0)}</span>
+                      <span className="rate-value" style={{ fontSize: 22 }}>Rs. {Number(scooter.weeklyRate).toFixed(0)}</span>
                       <span className="rate-label">Weekly</span>
                     </div>
                     <div className="rate-divider" />
                     <div className="rate-item">
-                      <span className="rate-value" style={{ fontSize: 22 }}>${Number(scooter.monthlyRate).toFixed(0)}</span>
+                      <span className="rate-value" style={{ fontSize: 22 }}>Rs. {Number(scooter.monthlyRate).toFixed(0)}</span>
                       <span className="rate-label">Monthly</span>
                     </div>
                   </div>
@@ -190,9 +214,7 @@ export default function ScooterDetailPage() {
               {scooter.description && (
                 <div style={{ marginBottom: 24 }}>
                   <h4 style={{ fontSize: 13, color: 'var(--slate-light)', fontWeight: 700, marginBottom: 8, letterSpacing: '0.5px' }}>DESCRIPTION</h4>
-                  <p style={{ fontSize: 14, color: 'rgba(255, 255, 255, 0.8)', lineHeight: 1.6, margin: 0 }}>
-                    {scooter.description}
-                  </p>
+                  {parseDescription(scooter.description)}
                 </div>
               )}
 

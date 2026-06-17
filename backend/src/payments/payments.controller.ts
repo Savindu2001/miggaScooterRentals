@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   RawBodyRequest,
@@ -76,5 +77,12 @@ export class PaymentsController {
   @ApiOperation({ summary: 'Get payments for a specific booking' })
   getBookingPayments(@Param('bookingId') bookingId: string) {
     return this.paymentsService.getBookingPayments(bookingId);
+  }
+
+  @Patch(':id/confirm')
+  @Roles(Role.ADMIN, Role.STAFF)
+  @ApiOperation({ summary: 'Manually confirm a payment' })
+  confirmPayment(@Param('id') id: string) {
+    return this.paymentsService.confirmPayment(id);
   }
 }

@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 import { BusinessConfig, baseEmailTemplate } from '../templates/base.template';
 import { getTemplates, compileTemplate } from '../templates/template.renderer';
+import * as path from 'path';
+import { generateAgreementPdfBuffer } from '../../common/utils/pdf.util';
 
 export interface EmailOptions {
   to: string;
@@ -111,12 +113,19 @@ export class EmailService {
 
     const ctx = this.buildContext(booking, { paymentLink });
     const subject = compileTemplate(template.subject || '', ctx);
-    const body = compileTemplate(template.body, ctx).replace(/\n/g, '<br/>');
+    let body = compileTemplate(template.body, ctx).replace(/\n/g, '<br/>');
+
+    if (booking.qrCode) {
+      body += this.getQrContent(booking);
+    }
+
+    const attachments = await this.getAttachments(booking);
 
     await this.send({
       to: booking.email,
       subject,
       html: baseEmailTemplate(body, this.biz),
+      attachments,
     });
   }
 
@@ -132,18 +141,11 @@ export class EmailService {
     const subject = compileTemplate(template.subject || '', ctx);
     let body = compileTemplate(template.body, ctx).replace(/\n/g, '<br/>');
 
-    // Add inline QR image to body if qrCode exists
     if (booking.qrCode) {
-      body += `<br/><br/><div style="text-align: center;"><img src="cid:qrcode" alt="Booking QR Code" style="width: 200px; height: 200px; border-radius: 12px; border: 4px solid white; box-shadow: 0 10px 25px rgba(0,0,0,0.15);" /><br/><strong style="color: #1a1a2e; font-size: 14px;">Present this QR code at pickup to collect your scooter</strong></div>`;
+      body += this.getQrContent(booking);
     }
 
-    const attachments = booking.qrCode ? [
-      {
-        filename: `booking-${booking.bookingId}-qr.png`,
-        path: booking.qrCode,
-        cid: 'qrcode'
-      }
-    ] : undefined;
+    const attachments = await this.getAttachments(booking);
 
     await this.send({
       to: booking.email,
@@ -167,18 +169,11 @@ export class EmailService {
     const subject = compileTemplate(template.subject || '', ctx);
     let body = compileTemplate(template.body, ctx).replace(/\n/g, '<br/>');
 
-    // Add inline QR image to body if qrCode exists
     if (booking.qrCode) {
-      body += `<br/><br/><div style="text-align: center;"><img src="cid:qrcode" alt="Booking QR Code" style="width: 200px; height: 200px; border-radius: 12px; border: 4px solid white; box-shadow: 0 10px 25px rgba(0,0,0,0.15);" /><br/><strong style="color: #1a1a2e; font-size: 14px;">Present this QR code at pickup to collect your scooter</strong></div>`;
+      body += this.getQrContent(booking);
     }
 
-    const attachments = booking.qrCode ? [
-      {
-        filename: `booking-${booking.bookingId}-qr.png`,
-        path: booking.qrCode,
-        cid: 'qrcode'
-      }
-    ] : undefined;
+    const attachments = await this.getAttachments(booking);
 
     await this.send({
       to: booking.email,
@@ -200,12 +195,17 @@ export class EmailService {
 
     const ctx = this.buildContext(booking);
     const subject = compileTemplate(template.subject || '', ctx);
-    const body = compileTemplate(template.body, ctx).replace(/\n/g, '<br/>');
+    let body = compileTemplate(template.body, ctx).replace(/\n/g, '<br/>');
+
+    if (booking.qrCode) {
+      body += this.getQrContent(booking);
+    }
 
     await this.send({
       to: booking.email,
       subject,
       html: baseEmailTemplate(body, this.biz),
+      attachments: this.getQrAttachment(booking),
     });
   }
 
@@ -214,6 +214,7 @@ export class EmailService {
       to: booking.email,
       subject: `Extension Approved — ${booking.bookingId} | ${this.biz.systemName}`,
       html: this.extensionApprovedTemplate(booking, extension),
+      attachments: this.getQrAttachment(booking),
     });
   }
 
@@ -222,7 +223,69 @@ export class EmailService {
       to: booking.email,
       subject: `Extension Rejected — ${booking.bookingId} | ${this.biz.systemName}`,
       html: this.extensionRejectedTemplate(booking, extension),
+      attachments: this.getQrAttachment(booking),
     });
+  }
+
+  async sendExtensionRequested(booking: any, extension: any): Promise<void> {
+    await this.send({
+      to: booking.email,
+      subject: `Extension Requested — ${booking.bookingId} | ${this.biz.systemName}`,
+      html: this.extensionRequestedTemplate(booking, extension),
+      attachments: this.getQrAttachment(booking),
+    });
+  }
+
+  async sendWriteUsAReview(booking: any): Promise<void> {
+    await this.send({
+      to: booking.email,
+      subject: `How was your rental? Leave us a review! ⭐ | ${this.biz.systemName}`,
+      html: this.writeUsAReviewTemplate(booking),
+      attachments: this.getQrAttachment(booking),
+    });
+  }
+
+  // ─── Helpers ───────────────────────────────────────────────────────────────
+
+  private getQrContent(booking: any): string {
+    if (booking.qrCode) {
+      return `<br/><br/><div style="text-align: center; margin-top: 20px;"><img src="cid:qrcode" alt="Booking QR Code" style="width: 180px; height: 180px; border-radius: 12px; border: 4px solid white; box-shadow: 0 10px 25px rgba(0,0,0,0.15);" /><br/><strong style="color: #1a1a2e; font-size: 13px; font-family: Outfit, sans-serif;">Booking Reference QR Code</strong></div>`;
+    }
+    return '';
+  }
+
+  private async getAttachments(booking: any): Promise<any[] | undefined> {
+    const attachments: any[] = [];
+    if (booking.qrCode) {
+      attachments.push({
+        filename: `booking-${booking.bookingId}-qr.png`,
+        path: booking.qrCode,
+        cid: 'qrcode'
+      });
+    }
+    
+    try {
+      const buffer = await generateAgreementPdfBuffer(booking);
+      attachments.push({
+        filename: `Rental-Agreement-${booking.bookingId}.pdf`,
+        content: buffer,
+      });
+    } catch (err) {
+      this.logger.error(`Failed to generate agreement PDF for email: ${err.message}`);
+    }
+    
+    return attachments.length > 0 ? attachments : undefined;
+  }
+
+  private getQrAttachment(booking: any): any[] | undefined {
+    if (booking.qrCode) {
+      return [{
+        filename: `booking-${booking.bookingId}-qr.png`,
+        path: booking.qrCode,
+        cid: 'qrcode'
+      }];
+    }
+    return undefined;
   }
 
   // ─── Inline Templates (to be moved to /templates as needed) ────────────────
@@ -274,8 +337,13 @@ export class EmailService {
       <div class="info-card">
         <div class="info-row"><span class="label">Booking ID</span><span class="value">${booking.bookingId}</span></div>
         <div class="info-row"><span class="label">New Return Date</span><span class="value">${new Date(extension.requestedUntil).toDateString()}</span></div>
-        <div class="info-row"><span class="label">Status</span><span class="badge badge-green">APPROVED</span></div>
+        <div class="info-row"><span class="label">Extra Amount Due</span><span class="value">Rs. ${Number(extension.extraAmount).toFixed(2)}</span></div>
+        <div class="info-row"><span class="label">Payment Status</span><span class="badge badge-orange">PAY AT DROP-OFF</span></div>
       </div>
+      <div class="note" style="margin-top:20px;padding:15px;background-color:#fff3cd;border-left:4px solid #ffc107;color:#856404;font-size:14px;border-radius:4px;">
+        ⚠️ <strong>Payment Instructions:</strong> Please note that the extra amount of <strong>Rs. ${Number(extension.extraAmount).toFixed(2)}</strong> must be paid via <strong>Cash</strong> or <strong>Bank Transfer</strong> when you drop off the scooter at the end of your rental period.
+      </div>
+      ${this.getQrContent(booking)}
     `;
     return baseEmailTemplate(content, this.biz);
   }
@@ -292,6 +360,44 @@ export class EmailService {
         <div class="info-row"><span class="label">Original Return Date</span><span class="value">${new Date(booking.returnDate).toDateString()}</span></div>
       </div>
       <div class="note">Please ensure the scooter is returned by the original return date. Contact us if you have questions.</div>
+      ${this.getQrContent(booking)}
+    `;
+    return baseEmailTemplate(content, this.biz);
+  }
+
+  private extensionRequestedTemplate(booking: any, extension: any): string {
+    const content = `
+      <h2 style="color:#1a1a2e;margin-bottom:8px;font-size:22px;">Extension Request Received ⏳</h2>
+      <p style="color:#555;margin-bottom:28px;font-size:15px;">
+        Hi <strong>${booking.customerName}</strong>, we have received your request to extend your rental.
+      </p>
+      <div class="info-card">
+        <div class="info-row"><span class="label">Booking ID</span><span class="value">${booking.bookingId}</span></div>
+        <div class="info-row"><span class="label">Requested Until</span><span class="value">${new Date(extension.requestedUntil).toDateString()}</span></div>
+        <div class="info-row"><span class="label">Status</span><span class="badge badge-orange">PENDING APPROVAL</span></div>
+      </div>
+      <p style="color:#555;font-size:14px;line-height:1.7;margin-top:20px;">
+        We will review your request shortly and notify you once it is approved or rejected.
+      </p>
+      ${this.getQrContent(booking)}
+    `;
+    return baseEmailTemplate(content, this.biz);
+  }
+
+  private writeUsAReviewTemplate(booking: any): string {
+    const content = `
+      <h2 style="color:#1a1a2e;margin-bottom:8px;font-size:22px;">Thank you for riding with us! 🛵</h2>
+      <p style="color:#555;margin-bottom:28px;font-size:15px;">
+        Hi <strong>${booking.customerName}</strong>, we hope you enjoyed your ride. Your booking <strong>${booking.bookingId}</strong> is now marked as returned.
+      </p>
+      <div style="text-align: center; margin: 30px 0;">
+        <p style="color:#555;font-size:16px;margin-bottom:15px;">We would love to hear about your experience!</p>
+        <a href="${this.biz.website}/reviews" style="background-color:#e94560;color:white;padding:12px 24px;text-decoration:none;font-weight:bold;border-radius:8px;display:inline-block;box-shadow: 0 4px 6px rgba(233,69,96,0.2);">Write a Review</a>
+      </div>
+      <p style="color:#555;font-size:14px;line-height:1.7;">
+        If you have any feedback or suggestions, feel free to reply directly to this email. We hope to see you again soon!
+      </p>
+      ${this.getQrContent(booking)}
     `;
     return baseEmailTemplate(content, this.biz);
   }

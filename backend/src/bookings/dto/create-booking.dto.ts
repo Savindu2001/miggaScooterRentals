@@ -90,4 +90,9 @@ export class CreateBookingDto {
   @IsString()
   @IsOptional()
   notes?: string;
+
+  @ApiPropertyOptional({ example: 'CASH' })
+  @IsString()
+  @IsOptional()
+  paymentMethod?: string;
 }

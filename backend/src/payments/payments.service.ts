@@ -336,4 +336,41 @@ export class PaymentsService {
     ]);
     return { data, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } };
   }
+
+  async confirmPayment(id: string) {
+    const payment = await this.prisma.payment.findUnique({
+      where: { id },
+      include: { booking: true },
+    });
+    if (!payment) throw new NotFoundException('Payment not found');
+
+    const updatedPayment = await this.prisma.payment.update({
+      where: { id },
+      data: {
+        paymentStatus: PaymentStatus.COMPLETED,
+        paidAt: new Date(),
+      },
+    });
+
+    const updatedBooking = await this.prisma.booking.update({
+      where: { id: payment.bookingId },
+      data: {
+        bookingStatus: BookingStatus.CONFIRMED,
+      },
+      include: { scooter: true },
+    });
+
+    // Send notifications
+    void this.emailService.sendPaymentSuccess(updatedBooking, updatedPayment);
+    void this.whatsAppService.sendPaymentSuccess(updatedBooking, updatedPayment);
+    void this.emailService.sendBookingConfirmed(updatedBooking);
+    void this.whatsAppService.sendBookingConfirmed(updatedBooking);
+
+    return {
+      message: 'Payment confirmed successfully',
+      payment: updatedPayment,
+      booking: updatedBooking,
+    };
+  }
 }
+

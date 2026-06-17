@@ -3,6 +3,7 @@
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
 import React, { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
 import flatpickr from "flatpickr";
 import "flatpickr/dist/flatpickr.css";
 
@@ -131,6 +132,7 @@ type FilterPreset = "today" | "yesterday" | "week" | "custom" | "all";
 export default function DashboardPage() {
   const { user } = useAuth();
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [extensions, setExtensions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -169,9 +171,14 @@ export default function DashboardPage() {
     if (start) params.startDate = start;
     if (end) params.endDate = end;
 
-    api
-      .get<{ success: boolean; data: DashboardStats; timestamp: string }>("/dashboard/stats", { params })
-      .then((res) => setStats(res.data.data))
+    Promise.all([
+      api.get<{ success: boolean; data: DashboardStats; timestamp: string }>("/dashboard/stats", { params }),
+      api.get<{ success: boolean; data: any; meta: any }>("/extensions", { params: { status: "PENDING", limit: 10 } }),
+    ])
+      .then(([statsRes, extRes]) => {
+        setStats(statsRes.data.data);
+        setExtensions(extRes.data.data?.data || []);
+      })
       .catch(() => setError("Failed to load dashboard data."))
       .finally(() => setLoading(false));
   }, [getFilterDates]);
@@ -227,8 +234,30 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        {/* Filters */}
-        <div className="flex flex-wrap items-center gap-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-3 shadow-theme-xs">
+        <div className="flex flex-wrap items-center gap-3">
+          <Link
+            href="/bookings/verify"
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-brand-500 hover:bg-brand-600 rounded-2xl shadow-sm transition-colors h-11"
+          >
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M12 4H6a2 2 0 00-2 2v6m0 4v2a2 2 0 002 2h6m4 0h2a2 2 0 002-2v-2m0-4V6a2 2 0 00-2-2h-2m-8 4h4v4H8V8zm8 0h4v4h-4V8zm0 8h4v4h-4v-4zM8 16h4v4H8v-4z"
+              />
+            </svg>
+            QR Scan Desk
+          </Link>
+
+          {/* Filters */}
+          <div className="flex flex-wrap items-center gap-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-3 shadow-theme-xs">
           {(["all", "today", "yesterday", "week", "custom"] as FilterPreset[]).map((p) => (
             <button
               key={p}
@@ -262,6 +291,7 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+    </div>
 
       {/* Scooter Overview */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -315,7 +345,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard
           title="Period Revenue"
-          value={`$${financials.monthlyRevenue.toFixed(2)}`}
+          value={`Rs. ${financials.monthlyRevenue.toFixed(2)}`}
           subtitle={financials.month}
           color="bg-emerald-100 dark:bg-emerald-900/30"
           icon={
@@ -326,7 +356,7 @@ export default function DashboardPage() {
         />
         <StatCard
           title="Period Expenses"
-          value={`$${financials.monthlyExpenses.toFixed(2)}`}
+          value={`Rs. ${financials.monthlyExpenses.toFixed(2)}`}
           subtitle={financials.month}
           color="bg-red-100 dark:bg-red-900/30"
           icon={
@@ -337,7 +367,7 @@ export default function DashboardPage() {
         />
         <StatCard
           title="Net Profit"
-          value={`$${financials.netProfit.toFixed(2)}`}
+          value={`Rs. ${financials.netProfit.toFixed(2)}`}
           subtitle={financials.netProfit >= 0 ? "▲ Positive" : "▼ Loss"}
           color={financials.netProfit >= 0 ? "bg-teal-100 dark:bg-teal-900/30" : "bg-red-100 dark:bg-red-900/30"}
           icon={
@@ -348,8 +378,8 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* Two column lower section */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+      {/* Three column lower section */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         {/* Recent Bookings */}
         <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800">
@@ -374,7 +404,7 @@ export default function DashboardPage() {
                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[b.bookingStatus] ?? "bg-gray-100 text-gray-600"}`}>
                       {b.bookingStatus.replace("_", " ")}
                     </span>
-                    <span className="text-xs text-gray-500">${Number(b.totalAmount).toFixed(2)}</span>
+                    <span className="text-xs text-gray-500">Rs. {Number(b.totalAmount).toFixed(2)}</span>
                   </div>
                 </div>
               ))
@@ -406,6 +436,48 @@ export default function DashboardPage() {
                       })}
                     </p>
                     <p className="text-xs text-gray-400">{r.bookingId}</p>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Pending Extensions */}
+        <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800">
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white">Pending Extensions</h2>
+            <span className="text-xs text-orange-500 font-medium">{extensions.length} pending</span>
+          </div>
+          <div className="divide-y divide-gray-100 dark:divide-gray-800">
+            {extensions.length === 0 ? (
+              <p className="p-6 text-sm text-gray-400 text-center">No pending extensions.</p>
+            ) : (
+              extensions.map((ext) => (
+                <div key={ext.id} className="flex items-center justify-between px-6 py-3 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                      {ext.booking?.customerName ?? "Customer"}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      Until: {new Date(ext.requestedUntil).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                    </p>
+                    {ext.reason && (
+                      <p className="text-xs text-gray-400 dark:text-gray-500 italic truncate mt-0.5">
+                        &quot;{ext.reason}&quot;
+                      </p>
+                    )}
+                  </div>
+                  <div className="ml-4 flex flex-col items-end gap-1">
+                    <span className="text-xs font-semibold text-gray-500">
+                      {ext.booking?.bookingId}
+                    </span>
+                    <Link
+                      href="/extensions"
+                      className="text-xs text-brand-500 hover:underline font-semibold"
+                    >
+                      Review
+                    </Link>
                   </div>
                 </div>
               ))

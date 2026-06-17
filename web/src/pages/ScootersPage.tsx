@@ -73,7 +73,32 @@ interface Scooter {
 
 const API_BASE = import.meta.env.VITE_API_URL?.replace('/api/v1', '') ?? 'http://localhost:3000'
 
+function parseDescription(description?: string) {
+  if (!description) return null;
+  const lines = description.split('\n').map(line => line.trim()).filter(Boolean);
+  const isBulletList = lines.some(line => line.startsWith('-') || line.startsWith('*') || line.startsWith('•'));
 
+  if (isBulletList) {
+    return (
+      <ul style={{ paddingLeft: '20px', margin: '8px 0 16px 0', listStyleType: 'disc', color: 'var(--slate-light)', fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        {lines.map((line, idx) => {
+          const content = line.replace(/^[-*•]\s*/, '');
+          return <li key={idx}>{content}</li>;
+        })}
+      </ul>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: 16 }}>
+      {lines.map((line, idx) => (
+        <p key={idx} style={{ margin: 0, fontSize: '13px', color: 'var(--slate-light)', lineHeight: '1.5' }}>
+          {line}
+        </p>
+      ))}
+    </div>
+  );
+}
 
 export default function ScootersPage() {
   const navigate = useNavigate()
@@ -94,7 +119,15 @@ export default function ScootersPage() {
     api.get('/scooters', { params })
       .then(res => {
         const data = res.data?.data ?? res.data
-        setScooters(Array.isArray(data) ? data : data?.data ?? [])
+        const rawList = Array.isArray(data) ? data : data?.data ?? []
+        // Filter to only render scooters that are rentable
+        const filtered = rawList.filter((s: Scooter) => {
+          if (pickupDate && returnDate) {
+            return s.status !== 'MAINTENANCE';
+          }
+          return s.status === 'AVAILABLE';
+        });
+        setScooters(filtered)
         setError('')
       })
       .catch(() => setError('Failed to load scooters. Please try again.'))
@@ -114,7 +147,7 @@ export default function ScootersPage() {
           <div style={{ paddingTop: 12, paddingBottom: 24 }}>
             <div className="section-label">✦ Our Fleet</div>
             <h1 className="page-title">Choose Your Scooter</h1>
-            <p className="page-subtitle">Select from our fleet of well-maintained scooters</p>
+            <p className="page-subtitle">Select from our fleet of available scooters</p>
           </div>
 
           {/* Date Selector for availability checking */}
@@ -132,8 +165,11 @@ export default function ScootersPage() {
                   minDate={new Date().toISOString().split('T')[0]}
                   onChange={(val) => {
                     setPickupDate(val)
-                    if (returnDate && val > returnDate) {
-                      setReturnDate('')
+                    if (!returnDate || val >= returnDate) {
+                      const pickup = new Date(val)
+                      pickup.setDate(pickup.getDate() + 1)
+                      const nextDay = pickup.toISOString().split('T')[0]
+                      setReturnDate(nextDay)
                     }
                   }}
                   style={{ padding: '10px 14px', fontSize: 14 }}
@@ -202,22 +238,21 @@ export default function ScootersPage() {
                       <div className="scooter-card-title">{s.title}</div>
                       <div className="scooter-card-subtitle">{s.brand} {s.model} · {s.year}</div>
                     </div>
-                    {/* Hiding scooter status badge */}
                   </div>
 
                   <div className="scooter-rates">
                     <div className="rate-item">
-                      <span className="rate-value">${Number(s.dailyRate).toFixed(0)}</span>
+                      <span className="rate-value">Rs. {Number(s.dailyRate).toFixed(0)}</span>
                       <span className="rate-label">/ day</span>
                     </div>
                     <div className="rate-divider" />
                     <div className="rate-item">
-                      <span className="rate-value">${Number(s.weeklyRate).toFixed(0)}</span>
+                      <span className="rate-value">Rs. {Number(s.weeklyRate).toFixed(0)}</span>
                       <span className="rate-label">/ week</span>
                     </div>
                     <div className="rate-divider" />
                     <div className="rate-item">
-                      <span className="rate-value">${Number(s.monthlyRate).toFixed(0)}</span>
+                      <span className="rate-value">Rs. {Number(s.monthlyRate).toFixed(0)}</span>
                       <span className="rate-label">/ month</span>
                     </div>
                   </div>
@@ -228,11 +263,7 @@ export default function ScootersPage() {
                     <span className="meta-tag">🏷️ {s.scooterCode}</span>
                   </div>
 
-                  {s.description && (
-                    <p style={{ fontSize: 13, color: 'var(--slate-light)', marginBottom: 16, lineHeight: 1.5 }}>
-                      {s.description}
-                    </p>
-                  )}
+                  {s.description && parseDescription(s.description)}
 
                   <button
                     className="btn btn-primary btn-full"
@@ -242,7 +273,7 @@ export default function ScootersPage() {
                     }}
                     id={`book-scooter-${s.id}`}
                   >
-                    {s.status === 'MAINTENANCE' ? '⏳ Under Maintenance' : '🔎 View Details & Book'}
+                    🔎 View Details & Book
                   </button>
                 </div>
               </div>

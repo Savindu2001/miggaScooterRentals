@@ -3,13 +3,19 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ExtensionStatus } from '@prisma/client';
+import { ExtensionStatus, PaymentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateExtensionDto } from './dto/extension.dto';
+import { EmailService } from '../notifications/email/email.service';
+import { WhatsAppService } from '../notifications/whatsapp/whatsapp.service';
 
 @Injectable()
 export class ExtensionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly emailService: EmailService,
+    private readonly whatsAppService: WhatsAppService,
+  ) {}
 
   async create(bookingId: string, dto: CreateExtensionDto) {
     const booking = await this.prisma.booking.findUnique({
@@ -27,15 +33,21 @@ export class ExtensionsService {
       );
     }
 
-    return this.prisma.bookingExtension.create({
+    const newExt = await this.prisma.bookingExtension.create({
       data: {
         bookingId,
         requestedUntil: new Date(dto.requestedUntil),
         reason: dto.reason,
         status: ExtensionStatus.PENDING,
       },
-      include: { booking: true },
+      include: { booking: { include: { scooter: true } } },
     });
+
+    if (newExt.booking) {
+      void this.emailService.sendExtensionRequested(newExt.booking, newExt);
+    }
+
+    return newExt;
   }
 
   async findByBooking(bookingId: string) {
@@ -72,12 +84,28 @@ export class ExtensionsService {
   async approve(extensionId: string, reviewedById: string) {
     const extension = await this.prisma.bookingExtension.findUnique({
       where: { id: extensionId },
-      include: { booking: true },
+      include: {
+        booking: {
+          include: {
+            scooter: true,
+          },
+        },
+      },
     });
     if (!extension) throw new NotFoundException('Extension not found');
     if (extension.status !== ExtensionStatus.PENDING) {
       throw new BadRequestException('This extension has already been reviewed');
     }
+
+    // Calculate extra days
+    const oldReturnDate = new Date(extension.booking.returnDate);
+    const newReturnDate = new Date(extension.requestedUntil);
+    const diffTime = Math.abs(newReturnDate.getTime() - oldReturnDate.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    // Calculate extra amount
+    const dailyRate = Number(extension.booking.scooter.dailyRate);
+    const extraAmount = diffDays * dailyRate;
 
     const [updatedExtension] = await this.prisma.$transaction([
       this.prisma.bookingExtension.update({
@@ -86,6 +114,8 @@ export class ExtensionsService {
           status: ExtensionStatus.APPROVED,
           reviewedById,
           reviewedAt: new Date(),
+          extraAmount,
+          paymentStatus: PaymentStatus.PENDING,
         },
       }),
       this.prisma.booking.update({
@@ -94,19 +124,30 @@ export class ExtensionsService {
       }),
     ]);
 
+    // Send notifications
+    const fullBooking = await this.prisma.booking.findUnique({
+      where: { id: extension.bookingId },
+      include: { scooter: true },
+    });
+    if (fullBooking) {
+      void this.emailService.sendExtensionApproved(fullBooking, updatedExtension);
+      void this.whatsAppService.sendExtensionApproved(fullBooking, updatedExtension);
+    }
+
     return updatedExtension;
   }
 
   async reject(extensionId: string, reviewedById: string) {
     const extension = await this.prisma.bookingExtension.findUnique({
       where: { id: extensionId },
+      include: { booking: { include: { scooter: true } } },
     });
     if (!extension) throw new NotFoundException('Extension not found');
     if (extension.status !== ExtensionStatus.PENDING) {
       throw new BadRequestException('This extension has already been reviewed');
     }
 
-    return this.prisma.bookingExtension.update({
+    const updated = await this.prisma.bookingExtension.update({
       where: { id: extensionId },
       data: {
         status: ExtensionStatus.REJECTED,
@@ -114,5 +155,13 @@ export class ExtensionsService {
         reviewedAt: new Date(),
       },
     });
+
+    if (extension.booking) {
+      void this.emailService.sendExtensionRejected(extension.booking, updated);
+      void this.whatsAppService.sendExtensionRejected(extension.booking, updated);
+    }
+
+    return updated;
   }
 }
+

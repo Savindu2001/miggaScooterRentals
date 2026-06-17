@@ -4,6 +4,7 @@ import api from "@/lib/api";
 import React, { useCallback, useEffect, useState } from "react";
 import flatpickr from "flatpickr";
 import "flatpickr/dist/flatpickr.css";
+import toast from "react-hot-toast";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -107,11 +108,22 @@ export default function PaymentsPage() {
     .filter((p) => p.paymentStatus === "COMPLETED")
     .reduce((sum, p) => sum + Number(p.amount), 0);
 
+  const handleConfirmPayment = async (id: string) => {
+    if (!confirm("Are you sure you want to manually confirm this payment?")) return;
+    try {
+      await api.patch(`/payments/${id}/confirm`);
+      toast.success("Payment confirmed successfully");
+      load();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message ?? "Failed to confirm payment");
+    }
+  };
+
   return (
     <div className="space-y-5">
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Payments</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{meta.total} records · ${totalRevenue.toFixed(2)} collected this page</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{meta.total} records · Rs. {totalRevenue.toFixed(2)} collected this page</p>
       </div>
 
       {/* Summary cards */}
@@ -186,19 +198,19 @@ export default function PaymentsPage() {
             <table className="w-full text-sm">
               <thead className="border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50">
                 <tr>
-                  {["Booking", "Customer", "Amount", "Method", "Status", "Paid At"].map((h) => (
+                  {["Booking", "Customer", "Amount", "Method", "Status", "Paid At", "Actions"].map((h) => (
                     <th key={h} className="text-left text-xs font-semibold text-gray-500 dark:text-gray-400 px-4 py-3 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                 {payments.length === 0 ? (
-                  <tr><td colSpan={6} className="text-center py-12 text-gray-400">No payments found.</td></tr>
+                  <tr><td colSpan={7} className="text-center py-12 text-gray-400">No payments found.</td></tr>
                 ) : payments.map((p) => (
                   <tr key={p.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
                     <td className="px-4 py-3 font-mono text-xs text-gray-500 dark:text-gray-400">{p.booking?.bookingId ?? p.bookingId}</td>
                     <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{p.booking?.customerName ?? "—"}</td>
-                    <td className="px-4 py-3 font-semibold text-gray-900 dark:text-white">${Number(p.amount).toFixed(2)}</td>
+                    <td className="px-4 py-3 font-semibold text-gray-900 dark:text-white">Rs. {Number(p.amount).toFixed(2)}</td>
                     <td className="px-4 py-3 text-gray-500 dark:text-gray-400 uppercase text-xs">{p.paymentMethod}</td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[p.paymentStatus] ?? "bg-gray-100 text-gray-600"}`}>
@@ -207,6 +219,18 @@ export default function PaymentsPage() {
                     </td>
                     <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">
                       {p.paidAt ? fmt(p.paidAt) : "—"}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {p.paymentStatus === "PENDING" ? (
+                        <button
+                          onClick={() => handleConfirmPayment(p.id)}
+                          className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-semibold shadow-theme-xs transition-colors"
+                        >
+                          Confirm Paid
+                        </button>
+                      ) : (
+                        <span className="text-gray-400 dark:text-gray-600 text-xs">—</span>
+                      )}
                     </td>
                   </tr>
                 ))}
