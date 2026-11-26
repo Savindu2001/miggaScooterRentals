@@ -1,0 +1,10 @@
+# Copy to .dev.vars for local dev. In production set each with:
+#   npx wrangler secret put NAME
+# Long random string (e.g. `openssl rand -hex 32`)
+SESSION_SECRET=change-me-to-a-long-random-string
+# Gmail account that sends all emails, and a Google App Password for it
+# (Google Account > Security > 2-Step Verification > App passwords)
+GMAIL_USER=bookings@example.com
+GMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx
+# Where booking alerts go
+ADMIN_NOTIFY_EMAIL=owner@example.com

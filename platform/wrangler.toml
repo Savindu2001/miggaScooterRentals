@@ -1,0 +1,42 @@
+name = "migga"
+main = "src/index.tsx"
+compatibility_date = "2026-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Static files (CSS, JS, website photos) are served from Cloudflare's CDN.
+[assets]
+directory = "./public"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "migga"
+# Run `npx wrangler d1 create migga` and paste the id here.
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "BUCKET"
+# Private bucket for passports, licences, signatures and inspection photos.
+bucket_name = "migga-files"
+
+[vars]
+SITE_URL = "https://migga.lk"
+TZ_OFFSET_MIN = "330"
+BUSINESS_PHONE = "0761794522"
+WHATSAPP = "94761794522"
+FACEBOOK_URL = ""
+INSTAGRAM_URL = ""
+GOOGLE_REVIEW_SCOOTER = ""
+GOOGLE_REVIEW_SAFARI = ""
+GOOGLE_REVIEW_TAXI = ""
+MAIL_FROM_NAME = "Migga Sri Lanka"
+# Feature switches: "on" shows it on the website, anything else hides it
+FEATURE_TAXI = "off"            # taxi pages, taxi booking, driver sign-up
+FEATURE_PERMIT_SERVICE = "off"  # "Migga arranges your AAC permit" option
+
+[observability]
+enabled = true
+
+# Daily at 09:00 Sri Lanka time: review emails, delete old guest documents, clean unfinished bookings
+[triggers]
+crons = ["30 3 * * *"]
